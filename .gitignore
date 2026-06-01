@@ -3,7 +3,4 @@ __pycache__/
 *.pyc
 .venv/
 data/trajets.db
-sample.json
-_probe.py
-_save_sample.py
-data/trajets_test.csv
+data/browser_state.json

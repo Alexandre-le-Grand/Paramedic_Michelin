@@ -11,5 +11,7 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 MONGO_DB = os.getenv("MONGO_DB", "paramedic_michelin")
 MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "trajets")
 SCRAPE_DELAY_SECONDS = float(os.getenv("SCRAPE_DELAY_SECONDS", "3"))
+
 BROWSER_CHANNEL = os.getenv("BROWSER_CHANNEL", "msedge")
-HEADLESS = os.getenv("HEADLESS", "true").lower() in ("1", "true", "yes")
+BROWSER_SLOW_MO_MS = int(os.getenv("BROWSER_SLOW_MO_MS", "50"))
+SCRAPE_TIMEOUT_MS = int(os.getenv("SCRAPE_TIMEOUT_MS", "120000"))

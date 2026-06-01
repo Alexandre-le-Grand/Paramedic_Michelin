@@ -1,64 +1,48 @@
 # Paramedic Michelin
 
-Projet Python : recuperer les distances de trajet (ex. Paris -> Lyon) via **ViaMichelin**, puis stocker les resultats dans **SQL** (SQLite) et **MongoDB**.
-
-## Architecture
-
-| Composant | Role |
-|-----------|------|
-| src/scraper/viamichelin.py | Scraping Playwright (Edge) sur viamichelin.fr |
-| src/scraper/fallback_osrm.py | Secours si le site bloque ou ne renvoie pas la distance |
-| src/db/sql_repository.py | **SQL** relationnel (SQLite) — rapports, requetes structurees |
-| src/db/mongo_repository.py | **MongoDB** — documents JSON (dont aw_response) |
-| data/trajets.csv | Liste des trajets a traiter |
-
-**Pourquoi les deux bases ?**
-- **SQL** : donnees tabulaires propres (depart, rrivee, distance_km, duree_minutes) pour tableaux de bord et jointures.
-- **MongoDB** : conservation flexible de la reponse brute du scraping pour audit ou re-traitement.
-
-## Prerequis
-
-- Python 3.11+
-- **Microsoft Edge** (utilise par Playwright : channel=msedge)
-- Docker (pour MongoDB)
+Scraping **ViaMichelin** (navigateur Edge visible) + stockage **SQL** (SQLite) et **MongoDB**.
 
 ## Installation
 
-`ash
+```bash
 pip install -r requirements.txt
 python -m playwright install msedge
 copy .env.example .env
 docker compose up -d
-`
+```
 
 ## Utilisation
 
-`ash
-# Scraper tous les trajets du CSV -> SQL + MongoDB
+```bash
+# Scraper tous les trajets de data/trajets.csv
 python src/main.py run
 
-# Afficher les enregistrements SQL
+# Voir les derniers resultats SQL
 python src/main.py list-sql
+```
 
-# Sans repli OSRM
-python src/main.py run --no-fallback
-`
+**Important :** une fenetre **Edge** s'ouvre pour chaque trajet. Ne la fermez pas (~1–2 min par trajet).  
+En base : `source=viamichelin` si le calcul reussit.
 
-Modifier data/trajets.csv :
+## Fichiers
 
-`csv
+| Fichier | Role |
+|---------|------|
+| `data/trajets.csv` | Liste depart / arrivee |
+| `src/scraper/viamichelin.py` | Scraping Playwright |
+| `src/db/sql_repository.py` | SQLite |
+| `src/db/mongo_repository.py` | MongoDB |
+| `data/browser_state.json` | Cookies (genere, ne pas committer) |
+
+## CSV
+
+```csv
 depart,arrivee
 Paris,Lyon
-`
+```
 
-## Configuration (.env)
+## Depannage
 
-- SQLITE_PATH : fichier base SQL (defaut data/trajets.db)
-- MONGO_URI : mongodb://localhost:27017
-- SCRAPE_DELAY_SECONDS : pause entre trajets
-
-## Notes
-
-- ViaMichelin peut bloquer Chromium seul : le script utilise **Edge** et masque 
-avigator.webdriver.
-- Respecter les CGU du site et limiter le volume de requetes (projet / usage encadre).
+- **Edge introuvable** : `python -m playwright install msedge`
+- **Erreur cookies** : supprimer `data/browser_state.json` et relancer
+- **Distance vide** : verifier les noms de villes, laisser Edge finir le calcul

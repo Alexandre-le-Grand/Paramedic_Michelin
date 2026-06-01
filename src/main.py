@@ -1,4 +1,10 @@
-"""Point d entree: scrape ViaMichelin puis enregistre en SQL + MongoDB."""
+"""
+Paramedic Michelin — scraping ViaMichelin + SQL + MongoDB.
+
+Usage:
+    python src/main.py run
+    python src/main.py list-sql
+"""
 from __future__ import annotations
 
 import argparse
@@ -15,9 +21,8 @@ if str(ROOT) not in sys.path:
 from config.settings import SCRAPE_DELAY_SECONDS
 from src.db.mongo_repository import MongoRepository
 from src.db.sql_repository import SqlRepository
-from src.extract import is_plausible_route_km
-from src.scraper.fallback_osrm import route_distance_km as osrm_route
-from src.scraper.viamichelin import RouteResult, fetch_route
+from src.models import RouteResult
+from src.scraper.viamichelin import ViaMichelinScraper
 
 
 def load_trajets_csv(path: Path) -> list[tuple[str, str]]:
@@ -46,48 +51,16 @@ def result_to_record(result: RouteResult) -> dict:
     }
 
 
-def process_trajet(depart: str, arrivee: str, use_fallback: bool) -> dict:
-    print(f"Trajet: {depart} -> {arrivee}")
-    try:
-        result = fetch_route(depart, arrivee)
-    except Exception as exc:
-        result = RouteResult(
-            depart=depart,
-            arrivee=arrivee,
-            distance_km=None,
-            duree_minutes=None,
-            source="viamichelin",
-            statut="erreur",
-            message_erreur=str(exc),
-            raw_response=None,
-        )
-
-    needs_fallback = result.statut != "ok" or not is_plausible_route_km(
-        result.distance_km
-    )
-    if needs_fallback and use_fallback:
-        print("  -> repli OSRM (distance fiable, proche ViaMichelin)")
-        try:
-            fb = osrm_route(depart, arrivee)
-            result = RouteResult(
-                depart=depart,
-                arrivee=arrivee,
-                distance_km=fb["distance_km"],
-                duree_minutes=fb["duree_minutes"],
-                source=fb["source"],
-                statut="ok",
-                message_erreur=result.message_erreur,
-                raw_response=fb.get("raw_response"),
-            )
-        except Exception as exc2:
-            result.message_erreur = f"{result.message_erreur}; OSRM: {exc2}"
-            result.statut = "erreur"
-
+def _print_result(depart: str, arrivee: str, result: RouteResult) -> dict:
+    print(f"\nTrajet: {depart} -> {arrivee}")
     record = result_to_record(result)
     print(
         f"  -> {record.get('distance_km')} km, "
-        f"{record.get('duree_minutes')} min, source={record['source']}, statut={record['statut']}"
+        f"{record.get('duree_minutes')} min | "
+        f"source={record['source']} | statut={record['statut']}"
     )
+    if result.statut == "erreur" and result.message_erreur:
+        print(f"  -> {result.message_erreur}")
     return record
 
 
@@ -97,43 +70,43 @@ def cmd_run(args: argparse.Namespace) -> None:
         print("Aucun trajet dans le CSV.")
         return
 
+    print("Scraping ViaMichelin (Edge visible) — SQL + MongoDB")
     sql_repo = SqlRepository()
     mongo_repo = MongoRepository()
     mongo_repo.ping()
-    print("MongoDB: connecte")
 
-    for i, (depart, arrivee) in enumerate(trajets):
-        record = process_trajet(depart, arrivee, use_fallback=not args.no_fallback)
-        sql_id = sql_repo.insert_trajet(record)
-        mongo_id = mongo_repo.insert_trajet(record)
-        print(f"  SQL id={sql_id}, MongoDB id={mongo_id}")
-        if i < len(trajets) - 1:
-            time.sleep(SCRAPE_DELAY_SECONDS)
+    with ViaMichelinScraper() as scraper:
+        for i, (depart, arrivee) in enumerate(trajets):
+            result = scraper.fetch_route(depart, arrivee)
+            record = _print_result(depart, arrivee, result)
+            sql_id = sql_repo.insert_trajet(record)
+            mongo_id = mongo_repo.insert_trajet(record)
+            print(f"  Enregistre: SQL id={sql_id}, MongoDB id={mongo_id}")
+            if i < len(trajets) - 1:
+                print(f"  Pause {SCRAPE_DELAY_SECONDS}s…")
+                time.sleep(SCRAPE_DELAY_SECONDS)
 
     mongo_repo.close()
-    print("Termine.")
+    print("\nTermine.")
 
 
-def cmd_list_sql(_: argparse.Namespace) -> None:
-    rows = SqlRepository().list_trajets()
-    for row in rows:
+def cmd_list_sql(args: argparse.Namespace) -> None:
+    for row in SqlRepository().list_trajets(limit=args.limit):
         print(row)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Paramedic Michelin - scrape + SQL + MongoDB")
+    parser = argparse.ArgumentParser(
+        description="Scraping ViaMichelin -> SQLite + MongoDB"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     run_p = sub.add_parser("run", help="Scraper les trajets du CSV")
-    run_p.add_argument("--csv", default="data/trajets.csv", help="Fichier CSV depart,arrivee")
-    run_p.add_argument(
-        "--no-fallback",
-        action="store_true",
-        help="Ne pas utiliser OSRM si ViaMichelin echoue",
-    )
+    run_p.add_argument("--csv", default="data/trajets.csv")
     run_p.set_defaults(func=cmd_run)
 
-    list_p = sub.add_parser("list-sql", help="Afficher les trajets en base SQL")
+    list_p = sub.add_parser("list-sql", help="Afficher les trajets en SQL")
+    list_p.add_argument("--limit", type=int, default=20)
     list_p.set_defaults(func=cmd_list_sql)
 
     args = parser.parse_args()

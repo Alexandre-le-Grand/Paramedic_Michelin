@@ -1,141 +1,306 @@
-"""Scraping ViaMichelin avec Playwright (Microsoft Edge recommande)."""
+"""
+Scraping ViaMichelin via Playwright (Edge visible).
+Une seule fenetre Edge pour tous les trajets du CSV.
+"""
 from __future__ import annotations
 
 import json
 import re
 import time
-from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterator
 
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
-from config.settings import BROWSER_CHANNEL, HEADLESS
+from config.settings import BROWSER_CHANNEL, BROWSER_SLOW_MO_MS, ROOT, SCRAPE_TIMEOUT_MS
 from src.extract import (
-    MIN_ROUTE_KM,
     extract_duration_from_page_text,
     extract_from_api_payload,
     extract_km_from_page_text,
     is_plausible_route_km,
 )
+from src.models import RouteResult
 
-
-@dataclass
-class RouteResult:
-    depart: str
-    arrivee: str
-    distance_km: float | None
-    duree_minutes: int | None
-    source: str
-    statut: str
-    message_erreur: str | None
-    raw_response: dict | list | None
-
-
-URL = "https://www.viamichelin.fr/itineraires"
+ITINERAIRES_URL = "https://www.viamichelin.fr/itineraires"
+BROWSER_STATE = ROOT / "data" / "browser_state.json"
 
 
 def _parse_jsonp(text: str) -> dict | list:
     text = text.strip()
-    if "(" in text and text.endswith(")"):
-        text = text[text.index("(") + 1 : -1]
+    if text.startswith("{"):
+        return json.loads(text)
+    if "(" in text and ")" in text:
+        return json.loads(text[text.index("(") + 1 : text.rindex(")")])
     return json.loads(text)
 
 
-def _accept_cookies(page: Page) -> None:
-    btn = page.locator("#didomi-notice-agree-button")
-    if btn.count():
-        btn.click(force=True, timeout=5000)
+def _dismiss_didomi(page: Page) -> None:
+    """Ferme le bandeau cookies Didomi qui bloque les clics."""
+    for selector in (
+        "#didomi-notice-agree-button",
+        "button#didomi-notice-agree-button",
+    ):
+        btn = page.locator(selector)
+        if btn.count():
+            try:
+                btn.click(force=True, timeout=3000)
+            except Exception:
+                pass
+
+    for label in ("Accepter & Fermer", "Tout accepter", "Accepter"):
+        btn = page.get_by_role("button", name=re.compile(label, re.I))
+        if btn.count():
+            try:
+                btn.first.click(force=True, timeout=2000)
+            except Exception:
+                pass
+
     try:
-        page.wait_for_selector("#didomi-popup", state="hidden", timeout=20000)
+        page.wait_for_selector("#didomi-popup", state="hidden", timeout=8000)
     except Exception:
-        pass
-    page.locator("#departure").wait_for(state="visible", timeout=20000)
-    page.wait_for_function(
-        "() => { const el = document.querySelector('#departure'); return el && !el.disabled; }",
-        timeout=20000,
-    )
+        page.evaluate(
+            """() => {
+                for (const id of ['didomi-popup', 'didomi-host']) {
+                    const el = document.getElementById(id);
+                    if (el) el.remove();
+                }
+            }"""
+        )
+
+    page.wait_for_timeout(500)
 
 
-def _fill_place(page: Page, selector: str, value: str) -> None:
-    field = page.locator(selector)
+def _fill_city(page: Page, field_id: str, city: str) -> None:
+    """Remplit depart ou arrival ; selection au clavier (evite le popup cookies)."""
+    _dismiss_didomi(page)
+    label = f"{city}, France" if ", France" not in city else city
+    field = page.locator(field_id)
     field.click(force=True)
-    field.fill(value, force=True)
+    field.fill("", force=True)
+    field.fill(label, force=True)
     page.wait_for_timeout(2500)
+    _dismiss_didomi(page)
     page.keyboard.press("ArrowDown")
+    page.wait_for_timeout(300)
     page.keyboard.press("Enter")
     page.wait_for_timeout(1000)
 
 
-def fetch_route(depart: str, arrivee: str) -> RouteResult:
-    captured: list[dict | list] = []
+def _trigger_route_calculation(page: Page) -> None:
+    """Lance le calcul (Enter suffit souvent ; pas de bouton 'Rechercher' sur la page)."""
+    _dismiss_didomi(page)
+    page.locator("#arrival").press("Enter")
+    page.wait_for_timeout(1500)
 
-    def on_response(response) -> None:
-        if "vmrest" not in response.url or response.status != 200:
-            return
-        try:
-            body = response.text()
-            if body and ("iti" in response.url or "route" in response.url):
-                captured.append(_parse_jsonp(body))
-        except Exception:
-            pass
+    for selector in (
+        "button.btn-filled-primary",
+        "button[type='submit']",
+        "form button[type='button']",
+    ):
+        btn = page.locator(selector)
+        if btn.count() > 0:
+            try:
+                btn.first.click(force=True, timeout=3000)
+                page.wait_for_timeout(1000)
+                return
+            except Exception:
+                pass
 
-    launch_kwargs: dict[str, Any] = {
-        "headless": HEADLESS,
-        "args": ["--disable-blink-features=AutomationControlled"],
-    }
-    if BROWSER_CHANNEL:
-        launch_kwargs["channel"] = BROWSER_CHANNEL
+    for pattern in (r"Rechercher", r"itin", r"Calculer"):
+        btn = page.get_by_role("button", name=re.compile(pattern, re.I))
+        if btn.count() > 0:
+            try:
+                btn.first.click(force=True, timeout=3000)
+                return
+            except Exception:
+                pass
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(**launch_kwargs)
-        context = browser.new_context(
-            locale="fr-FR",
-            viewport={"width": 1400, "height": 900},
-            user_agent=(
+
+def _read_km_from_page(page: Page) -> float | None:
+    """Lit la distance sur la page — prend le plus grand km plausible (total trajet)."""
+    candidates: list[float] = []
+    try:
+        loc = page.get_by_text(re.compile(r"\d{2,4}[\s\u00a0.,]?\d*\s*km", re.I))
+        for i in range(min(loc.count(), 15)):
+            km = extract_km_from_page_text(loc.nth(i).inner_text(timeout=2000))
+            if is_plausible_route_km(km) and km is not None:
+                candidates.append(km)
+    except Exception:
+        pass
+    body_km = extract_km_from_page_text(page.inner_text("body"))
+    if is_plausible_route_km(body_km) and body_km is not None:
+        candidates.append(body_km)
+    return max(candidates) if candidates else None
+
+
+def _wait_for_route_data(
+    page: Page,
+    captured: list[dict | list],
+    timeout_s: int = 120,
+) -> tuple[str, float | None]:
+    """Attend vmrest ou distance affichee sur la page."""
+    deadline = time.time() + timeout_s
+    body_text = ""
+    km_found: float | None = None
+    while time.time() < deadline:
+        if captured:
+            body_text = page.inner_text("body")
+            km_found = _read_km_from_page(page)
+            if is_plausible_route_km(km_found):
+                return body_text, km_found
+        body_text = page.inner_text("body")
+        km_found = _read_km_from_page(page)
+        if is_plausible_route_km(km_found):
+            return body_text, km_found
+        page.wait_for_timeout(2000)
+    return body_text or page.inner_text("body"), km_found
+
+
+class ViaMichelinScraper:
+    """Session Edge reutilisee pour plusieurs trajets."""
+
+    def __init__(self) -> None:
+        self._playwright: Playwright | None = None
+        self._browser: Browser | None = None
+        self._context: BrowserContext | None = None
+        self._page: Page | None = None
+        self._captured: list[dict | list] = []
+
+    def __enter__(self) -> ViaMichelinScraper:
+        launch: dict[str, Any] = {
+            "headless": False,
+            "slow_mo": BROWSER_SLOW_MO_MS,
+            "args": ["--disable-blink-features=AutomationControlled"],
+        }
+        if BROWSER_CHANNEL:
+            launch["channel"] = BROWSER_CHANNEL
+
+        context_opts: dict[str, Any] = {
+            "locale": "fr-FR",
+            "viewport": {"width": 1400, "height": 900},
+            "user_agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
             ),
-        )
-        context.add_init_script(
+        }
+        if BROWSER_STATE.exists():
+            context_opts["storage_state"] = str(BROWSER_STATE)
+
+        self._playwright = sync_playwright().start()
+        self._browser = self._playwright.chromium.launch(**launch)
+        self._context = self._browser.new_context(**context_opts)
+        self._context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
-        page = context.new_page()
-        page.on("response", on_response)
+        self._page = self._context.new_page()
+        self._page.set_default_timeout(SCRAPE_TIMEOUT_MS)
+        self._page.on("response", self._on_response)
 
-        page.goto(URL, wait_until="domcontentloaded", timeout=120000)
-        _accept_cookies(page)
-        _fill_place(page, "#departure", depart)
-        _fill_place(page, "#arrival", arrivee)
-
-        page.get_by_role("button", name=re.compile("Rechercher", re.I)).first.click(
-            force=True
+        print("Ouverture Edge (une fenetre pour tous les trajets)…")
+        self._page.goto(ITINERAIRES_URL, wait_until="domcontentloaded")
+        _dismiss_didomi(self._page)
+        self._page.wait_for_function(
+            "() => { const el = document.querySelector('#departure'); return el && !el.disabled; }",
+            timeout=30000,
         )
-        page.wait_for_load_state("networkidle", timeout=120000)
+        return self
 
-        body_text = page.inner_text("body")
-        deadline = time.time() + 60
-        route_ready = False
-        while time.time() < deadline and not route_ready:
-            for payload in captured:
-                km, _ = extract_from_api_payload(payload)
-                if is_plausible_route_km(km):
-                    route_ready = True
-                    break
-            if not route_ready:
-                body_text = page.inner_text("body")
-                if is_plausible_route_km(extract_km_from_page_text(body_text)):
-                    route_ready = True
-            if not route_ready:
-                page.wait_for_timeout(2000)
+    def _on_response(self, response) -> None:
+        if "vmrest" not in response.url or response.status != 200:
+            return
+        try:
+            self._captured.append(_parse_jsonp(response.text()))
+        except Exception:
+            pass
 
-        browser.close()
+    def _is_alive(self) -> bool:
+        try:
+            return self._page is not None and not self._page.is_closed()
+        except Exception:
+            return False
 
+    def _restart_session(self) -> None:
+        if self._browser:
+            try:
+                self._browser.close()
+            except Exception:
+                pass
+        if self._playwright:
+            try:
+                self._playwright.stop()
+            except Exception:
+                pass
+        self.__enter__()
+
+    def fetch_route(self, depart: str, arrivee: str) -> RouteResult:
+        if not self._is_alive():
+            print("  [ViaMichelin] Reconnexion Edge…")
+            self._restart_session()
+
+        page = self._page
+        assert page is not None
+
+        self._captured.clear()
+        body_text = ""
+
+        try:
+            page.goto(ITINERAIRES_URL, wait_until="domcontentloaded")
+            _dismiss_didomi(page)
+            _fill_city(page, "#departure", depart)
+            _fill_city(page, "#arrival", arrivee)
+            _trigger_route_calculation(page)
+            print("  [ViaMichelin] Calcul en cours, lecture des km…")
+            body_text, km_hint = _wait_for_route_data(page, self._captured, timeout_s=120)
+            if km_hint is not None and not self._captured:
+                self._captured.append({"page_km_hint": km_hint})
+
+        except Exception as exc:
+            msg = str(exc)
+            if "closed" in msg.lower() and not body_text:
+                print("  [ViaMichelin] Fenetre fermee — nouvel essai…")
+                try:
+                    self._restart_session()
+                    return self.fetch_route(depart, arrivee)
+                except Exception as exc2:
+                    msg = str(exc2)
+            return RouteResult(
+                depart=depart,
+                arrivee=arrivee,
+                distance_km=None,
+                duree_minutes=None,
+                source="viamichelin",
+                statut="erreur",
+                message_erreur=msg,
+                raw_response=None,
+            )
+
+        return _build_result(depart, arrivee, self._captured, body_text)
+
+    def __exit__(self, *args: object) -> None:
+        if self._context:
+            BROWSER_STATE.parent.mkdir(parents=True, exist_ok=True)
+            self._context.storage_state(path=str(BROWSER_STATE))
+        if self._browser:
+            self._browser.close()
+        if self._playwright:
+            self._playwright.stop()
+
+
+def _build_result(
+    depart: str,
+    arrivee: str,
+    captured: list[dict | list],
+    body_text: str,
+) -> RouteResult:
     distance_km: float | None = None
     duree_minutes: int | None = None
     raw: dict | list | None = None
 
     for payload in captured:
+        if isinstance(payload, dict) and "page_km_hint" in payload:
+            distance_km = float(payload["page_km_hint"])
+            raw = payload
+            continue
         km, mins = extract_from_api_payload(payload)
         if km:
             distance_km = km
@@ -143,10 +308,10 @@ def fetch_route(depart: str, arrivee: str) -> RouteResult:
             duree_minutes = mins
         raw = payload
 
-    if distance_km is None:
+    if distance_km is None and body_text:
         distance_km = extract_km_from_page_text(body_text)
-    if duree_minutes is None:
-        duree_minutes = extract_duration_from_page_text(body_text)
+        if duree_minutes is None:
+            duree_minutes = extract_duration_from_page_text(body_text)
 
     if not is_plausible_route_km(distance_km):
         return RouteResult(
@@ -156,11 +321,7 @@ def fetch_route(depart: str, arrivee: str) -> RouteResult:
             duree_minutes=duree_minutes,
             source="viamichelin",
             statut="erreur",
-            message_erreur=(
-                f"Distance incoherente ({distance_km} km) : "
-                f"itineraire non charge (attendu >= {MIN_ROUTE_KM} km). "
-                "Essayez HEADLESS=false dans .env ou le repli OSRM."
-            ),
+            message_erreur="Itineraire non recupere — laissez Edge finir le calcul.",
             raw_response=raw,
         )
 
@@ -174,3 +335,16 @@ def fetch_route(depart: str, arrivee: str) -> RouteResult:
         message_erreur=None,
         raw_response=raw,
     )
+
+
+def fetch_route(depart: str, arrivee: str) -> RouteResult:
+    """Un seul trajet (ouvre et ferme Edge). Preferer ViaMichelinScraper en batch."""
+    with ViaMichelinScraper() as scraper:
+        return scraper.fetch_route(depart, arrivee)
+
+
+def fetch_routes(trajets: list[tuple[str, str]]) -> Iterator[RouteResult]:
+    """Tous les trajets dans la meme fenetre Edge."""
+    with ViaMichelinScraper() as scraper:
+        for depart, arrivee in trajets:
+            yield scraper.fetch_route(depart, arrivee)
