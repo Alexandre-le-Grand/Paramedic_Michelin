@@ -70,14 +70,14 @@ def cmd_run(args: argparse.Namespace) -> None:
         print("Aucun trajet dans le CSV.")
         return
 
-    headless = not args.visible
+    headless = BROWSER_HEADLESS if not args.visible else False
     mode = "sans fenetre" if headless else "fenetre visible"
     print(f"Scraping ViaMichelin ({mode}) — SQL + MongoDB")
     sql_repo = SqlRepository()
     mongo_repo = MongoRepository()
     mongo_repo.ping()
 
-    with ViaMichelinScraper(headless=not args.visible) as scraper:
+    with ViaMichelinScraper(headless=headless) as scraper:
         for i, (depart, arrivee) in enumerate(trajets):
             result = scraper.fetch_route(depart, arrivee)
             record = _print_result(depart, arrivee, result)

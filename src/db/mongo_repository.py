@@ -33,13 +33,5 @@ class MongoRepository:
         result = self.collection.insert_one(doc)
         return str(result.inserted_id)
 
-    def find_by_route(self, depart: str, arrivee: str) -> list[dict[str, Any]]:
-        return list(
-            self.collection.find(
-                {"depart": depart, "arrivee": arrivee},
-                {"_id": 0},
-            ).sort("scraped_at", -1)
-        )
-
     def close(self) -> None:
         self.client.close()

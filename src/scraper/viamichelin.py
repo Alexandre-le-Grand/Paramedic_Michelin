@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any, Iterator
+from typing import Any
 
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
@@ -138,21 +138,12 @@ def _read_km_from_page(page: Page) -> float | None:
     return max(candidates) if candidates else None
 
 
-def _wait_for_route_data(
-    page: Page,
-    captured: list[dict | list],
-    timeout_s: int = 120,
-) -> tuple[str, float | None]:
+def _wait_for_route_data(page: Page, timeout_s: int = 120) -> tuple[str, float | None]:
     """Attend vmrest ou distance affichee sur la page."""
     deadline = time.time() + timeout_s
     body_text = ""
     km_found: float | None = None
     while time.time() < deadline:
-        if captured:
-            body_text = page.inner_text("body")
-            km_found = _read_km_from_page(page)
-            if is_plausible_route_km(km_found):
-                return body_text, km_found
         body_text = page.inner_text("body")
         km_found = _read_km_from_page(page)
         if is_plausible_route_km(km_found):
@@ -261,7 +252,7 @@ class ViaMichelinScraper:
             _fill_city(page, "#arrival", arrivee)
             _trigger_route_calculation(page)
             print("  [ViaMichelin] Calcul en cours, lecture des km…")
-            body_text, km_hint = _wait_for_route_data(page, self._captured, timeout_s=120)
+            body_text, km_hint = _wait_for_route_data(page, timeout_s=120)
             if km_hint is not None and not self._captured:
                 self._captured.append({"page_km_hint": km_hint})
 
@@ -346,16 +337,3 @@ def _build_result(
         message_erreur=None,
         raw_response=raw,
     )
-
-
-def fetch_route(depart: str, arrivee: str) -> RouteResult:
-    """Un seul trajet (ouvre et ferme Edge). Preferer ViaMichelinScraper en batch."""
-    with ViaMichelinScraper() as scraper:
-        return scraper.fetch_route(depart, arrivee)
-
-
-def fetch_routes(trajets: list[tuple[str, str]]) -> Iterator[RouteResult]:
-    """Tous les trajets dans la meme fenetre Edge."""
-    with ViaMichelinScraper() as scraper:
-        for depart, arrivee in trajets:
-            yield scraper.fetch_route(depart, arrivee)
