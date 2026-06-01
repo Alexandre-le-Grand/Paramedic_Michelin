@@ -323,7 +323,7 @@ def _build_result(
             duree_minutes=duree_minutes,
             source="viamichelin",
             statut="erreur",
-            message_erreur="Itineraire non recupere — laissez Edge finir le calcul.",
+            message_erreur="Itineraire non recupere — laissez le navigateur finir le calcul.",
             raw_response=raw,
         )
 

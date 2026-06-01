@@ -11,11 +11,30 @@ copy .env.example .env
 docker compose up -d
 ```
 
+MongoDB **8** (`mongo:8` dans `docker-compose.yml`).
+
+### Base MongoDB du patron (`paramedic.transports`)
+
+Le dump est dans `data/dumps/transports` (copie de l’archive fournie).
+
+```powershell
+# Restauration (une fois, ou après reset du volume Docker)
+.\scripts\restore-transports.ps1
+
+# Ou à la main :
+docker compose exec mongodb mongorestore --gzip --archive=/dumps/transports --nsInclude="paramedic.*"
+```
+
+Voir `data/dumps/README.md` pour le détail.
+
 ## Utilisation
 
 ```bash
-# Scraper tous les trajets de data/trajets.csv (sans fenetre)
+# Scraper depuis le CSV (tests, quelques trajets)
 python src/main.py run
+
+# Scraper depuis la base patron (paramedic.transports) — 10 premiers couples uniques
+python src/main.py run --source transports --limit 10
 
 # Debug : voir Edge a l'ecran
 python src/main.py run --visible

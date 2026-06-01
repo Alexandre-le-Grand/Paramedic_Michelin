@@ -4,3 +4,4 @@ __pycache__/
 .venv/
 data/trajets.db
 data/browser_state.json
+data/dumps/

@@ -21,11 +21,28 @@ if str(ROOT) not in sys.path:
 from config.settings import BROWSER_HEADLESS, SCRAPE_DELAY_SECONDS
 from src.db.mongo_repository import MongoRepository
 from src.db.sql_repository import SqlRepository
+from src.db.transports_repository import TransportsRepository
 from src.models import RouteResult
 from src.scraper.viamichelin import ViaMichelinScraper
 
 
-def load_trajets_csv(path: Path) -> list[tuple[str, str]]:
+def load_trajets(source: str, csv_path: Path, limit: int | None) -> list[tuple[str, str]]:
+    if source == "transports":
+        repo = TransportsRepository()
+        try:
+            total = repo.count_documents()
+            routes = repo.load_unique_routes(limit=limit)
+            print(
+                f"Source MongoDB paramedic.transports : "
+                f"{total} transports, {len(routes)} paires uniques a scraper."
+            )
+            return routes
+        finally:
+            repo.close()
+    return load_trajets_csv(csv_path, limit=limit)
+
+
+def load_trajets_csv(path: Path, limit: int | None = None) -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = []
     with path.open(encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
@@ -34,6 +51,8 @@ def load_trajets_csv(path: Path) -> list[tuple[str, str]]:
             arrivee = (row.get("arrivee") or row.get("arrival") or "").strip()
             if depart and arrivee:
                 rows.append((depart, arrivee))
+    if limit is not None and limit > 0:
+        return rows[:limit]
     return rows
 
 
@@ -65,9 +84,10 @@ def _print_result(depart: str, arrivee: str, result: RouteResult) -> dict:
 
 
 def cmd_run(args: argparse.Namespace) -> None:
-    trajets = load_trajets_csv(Path(args.csv))
+    limit = args.limit if args.limit and args.limit > 0 else None
+    trajets = load_trajets(args.source, Path(args.csv), limit=limit)
     if not trajets:
-        print("Aucun trajet dans le CSV.")
+        print("Aucun trajet a traiter.")
         return
 
     headless = BROWSER_HEADLESS if not args.visible else False
@@ -103,8 +123,20 @@ def main() -> None:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    run_p = sub.add_parser("run", help="Scraper les trajets du CSV")
+    run_p = sub.add_parser("run", help="Scraper les trajets (CSV ou base transports)")
+    run_p.add_argument(
+        "--source",
+        choices=("csv", "transports"),
+        default="csv",
+        help="csv = data/trajets.csv | transports = paramedic.transports (MongoDB)",
+    )
     run_p.add_argument("--csv", default="data/trajets.csv")
+    run_p.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Nombre max de trajets (0 = tout). Utile avec --source transports.",
+    )
     run_p.add_argument(
         "--visible",
         action="store_true",
