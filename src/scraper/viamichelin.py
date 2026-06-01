@@ -1,6 +1,6 @@
 """
-Scraping ViaMichelin via Playwright (Edge visible).
-Une seule fenetre Edge pour tous les trajets du CSV.
+Scraping ViaMichelin via Playwright (Edge, fenetre optionnelle).
+Une seule session navigateur pour tous les trajets du CSV.
 """
 from __future__ import annotations
 
@@ -11,7 +11,13 @@ from typing import Any, Iterator
 
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
-from config.settings import BROWSER_CHANNEL, BROWSER_SLOW_MO_MS, ROOT, SCRAPE_TIMEOUT_MS
+from config.settings import (
+    BROWSER_CHANNEL,
+    BROWSER_HEADLESS,
+    BROWSER_SLOW_MO_MS,
+    ROOT,
+    SCRAPE_TIMEOUT_MS,
+)
 from src.extract import (
     extract_duration_from_page_text,
     extract_from_api_payload,
@@ -156,9 +162,10 @@ def _wait_for_route_data(
 
 
 class ViaMichelinScraper:
-    """Session Edge reutilisee pour plusieurs trajets."""
+    """Session navigateur reutilisee pour plusieurs trajets."""
 
-    def __init__(self) -> None:
+    def __init__(self, headless: bool | None = None) -> None:
+        self._headless = BROWSER_HEADLESS if headless is None else headless
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
@@ -167,9 +174,12 @@ class ViaMichelinScraper:
 
     def __enter__(self) -> ViaMichelinScraper:
         launch: dict[str, Any] = {
-            "headless": False,
+            "headless": self._headless,
             "slow_mo": BROWSER_SLOW_MO_MS,
-            "args": ["--disable-blink-features=AutomationControlled"],
+            "args": [
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+            ],
         }
         if BROWSER_CHANNEL:
             launch["channel"] = BROWSER_CHANNEL
@@ -196,7 +206,8 @@ class ViaMichelinScraper:
         self._page.set_default_timeout(SCRAPE_TIMEOUT_MS)
         self._page.on("response", self._on_response)
 
-        print("Ouverture Edge (une fenetre pour tous les trajets)…")
+        mode = "arriere-plan" if self._headless else "fenetre visible"
+        print(f"Navigateur ({mode}) — session pour tous les trajets…")
         self._page.goto(ITINERAIRES_URL, wait_until="domcontentloaded")
         _dismiss_didomi(self._page)
         self._page.wait_for_function(

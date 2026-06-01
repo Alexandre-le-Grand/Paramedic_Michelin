@@ -1,6 +1,6 @@
 # Paramedic Michelin
 
-Scraping **ViaMichelin** (navigateur Edge visible) + stockage **SQL** (SQLite) et **MongoDB**.
+Scraping **ViaMichelin** (Edge en arriere-plan par defaut) + stockage **SQL** (SQLite) et **MongoDB**.
 
 ## Installation
 
@@ -14,14 +14,17 @@ docker compose up -d
 ## Utilisation
 
 ```bash
-# Scraper tous les trajets de data/trajets.csv
+# Scraper tous les trajets de data/trajets.csv (sans fenetre)
 python src/main.py run
+
+# Debug : voir Edge a l'ecran
+python src/main.py run --visible
 
 # Voir les derniers resultats SQL
 python src/main.py list-sql
 ```
 
-**Important :** une fenetre **Edge** s'ouvre pour chaque trajet. Ne la fermez pas (~1–2 min par trajet).  
+Par defaut le navigateur tourne en **headless** (`BROWSER_HEADLESS=true` dans `.env`).  
 En base : `source=viamichelin` si le calcul reussit.
 
 ## Fichiers

@@ -13,5 +13,6 @@ MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "trajets")
 SCRAPE_DELAY_SECONDS = float(os.getenv("SCRAPE_DELAY_SECONDS", "3"))
 
 BROWSER_CHANNEL = os.getenv("BROWSER_CHANNEL", "msedge")
-BROWSER_SLOW_MO_MS = int(os.getenv("BROWSER_SLOW_MO_MS", "50"))
+BROWSER_HEADLESS = os.getenv("BROWSER_HEADLESS", "true").lower() in ("1", "true", "yes")
+BROWSER_SLOW_MO_MS = int(os.getenv("BROWSER_SLOW_MO_MS", "0" if BROWSER_HEADLESS else "50"))
 SCRAPE_TIMEOUT_MS = int(os.getenv("SCRAPE_TIMEOUT_MS", "120000"))

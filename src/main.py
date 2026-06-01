@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config.settings import SCRAPE_DELAY_SECONDS
+from config.settings import BROWSER_HEADLESS, SCRAPE_DELAY_SECONDS
 from src.db.mongo_repository import MongoRepository
 from src.db.sql_repository import SqlRepository
 from src.models import RouteResult
@@ -70,12 +70,14 @@ def cmd_run(args: argparse.Namespace) -> None:
         print("Aucun trajet dans le CSV.")
         return
 
-    print("Scraping ViaMichelin (Edge visible) — SQL + MongoDB")
+    headless = not args.visible
+    mode = "sans fenetre" if headless else "fenetre visible"
+    print(f"Scraping ViaMichelin ({mode}) — SQL + MongoDB")
     sql_repo = SqlRepository()
     mongo_repo = MongoRepository()
     mongo_repo.ping()
 
-    with ViaMichelinScraper() as scraper:
+    with ViaMichelinScraper(headless=not args.visible) as scraper:
         for i, (depart, arrivee) in enumerate(trajets):
             result = scraper.fetch_route(depart, arrivee)
             record = _print_result(depart, arrivee, result)
@@ -103,6 +105,11 @@ def main() -> None:
 
     run_p = sub.add_parser("run", help="Scraper les trajets du CSV")
     run_p.add_argument("--csv", default="data/trajets.csv")
+    run_p.add_argument(
+        "--visible",
+        action="store_true",
+        help="Ouvrir Edge a l'ecran (debug ; sinon headless via .env)",
+    )
     run_p.set_defaults(func=cmd_run)
 
     list_p = sub.add_parser("list-sql", help="Afficher les trajets en SQL")
