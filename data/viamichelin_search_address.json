@@ -1,0 +1,4 @@
+{
+  "operationName": "SearchAddress",
+  "query": "query SearchAddress($query: String!, $proximity: CoordinatesInput!) {\n  searchAddress(input: {query: $query, proximity: $proximity}) {\n    score\n    formattedName\n    mapLocation {\n      location {\n        lng\n        lat\n      }\n    }\n  }\n}"
+}

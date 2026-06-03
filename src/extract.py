@@ -4,7 +4,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-MIN_ROUTE_KM = 80
+MIN_ROUTE_KM = 0.5
+MAX_ROUTE_KM = 2000.0
 
 
 def _parse_number(value: Any) -> float | None:
@@ -21,71 +22,126 @@ def _parse_number(value: Any) -> float | None:
     return None
 
 
-def extract_from_api_payload(data: dict | list) -> tuple[float | None, int | None]:
-    best_dist_m: float | None = None
-    best_time_s: float | None = None
+def _meters_to_km(meters: float) -> float:
+    return round(meters / 1000, 1)
 
-    def walk(obj: Any) -> None:
-        nonlocal best_dist_m, best_time_s
-        if isinstance(obj, dict):
-            for key, val in obj.items():
-                kl = key.lower()
-                if not isinstance(val, (dict, list)):
-                    num = _parse_number(val)
-                    if num is None:
-                        continue
-                    if kl in ("totaldist", "totaldistance", "dist", "length") or (
-                        "dist" in kl and "unit" not in kl
-                    ):
-                        if num > 500:
-                            best_dist_m = max(best_dist_m or 0, num)
-                        elif num >= MIN_ROUTE_KM and (
-                            best_dist_m is None or num * 1000 > best_dist_m
-                        ):
-                            best_dist_m = num * 1000
-                    if kl in ("totaltime", "traveltime", "duration", "time") and num > 120:
-                        if "toll" not in kl:
-                            best_time_s = max(best_time_s or 0, num)
-                else:
-                    walk(val)
-        elif isinstance(obj, list):
-            for item in obj:
-                walk(item)
 
-    walk(data)
-    distance_km = round(best_dist_m / 1000, 1) if best_dist_m else None
-    duree_min = int(round(best_time_s / 60)) if best_time_s else None
+def _seconds_to_minutes(seconds: float) -> int:
+    return int(round(seconds / 60))
+
+
+def _from_summary_dict(summary: dict[str, Any]) -> tuple[float | None, int | None]:
+    dist_m = _parse_number(
+        summary.get("totalDist")
+        or summary.get("totalDistance")
+        or summary.get("distance")
+    )
+    time_s = _parse_number(
+        summary.get("totalTime")
+        or summary.get("totalDuration")
+        or summary.get("duration")
+    )
+    distance_km = _meters_to_km(dist_m) if dist_m and dist_m > 0 else None
+    duree_min = _seconds_to_minutes(time_s) if time_s and time_s > 0 else None
     return distance_km, duree_min
 
 
+def _extract_header_summaries(obj: Any) -> tuple[float | None, int | None]:
+    """totalDist (m) et totalTime (s) dans header.summaries[0]."""
+    if isinstance(obj, dict):
+        header = obj.get("header") or obj.get("Header")
+        if isinstance(header, dict):
+            summaries = header.get("summaries") or header.get("Summaries")
+            if isinstance(summaries, list) and summaries:
+                first = summaries[0]
+                if isinstance(first, dict):
+                    km, mins = _from_summary_dict(first)
+                    if km is not None:
+                        return km, mins
+        for val in obj.values():
+            km, mins = _extract_header_summaries(val)
+            if km is not None:
+                return km, mins
+    elif isinstance(obj, list):
+        for item in obj:
+            km, mins = _extract_header_summaries(item)
+            if km is not None:
+                return km, mins
+    return None, None
+
+
+def _walk_totals(obj: Any) -> tuple[float | None, int | None]:
+    """Parcours limite : uniquement totalDist / totalTime explicites."""
+    best_dist_m: float | None = None
+    best_time_s: float | None = None
+
+    def walk(node: Any) -> None:
+        nonlocal best_dist_m, best_time_s
+        if isinstance(node, dict):
+            for key, val in node.items():
+                kl = key.lower()
+                if isinstance(val, (dict, list)):
+                    walk(val)
+                    continue
+                num = _parse_number(val)
+                if num is None:
+                    continue
+                if kl in ("totaldist", "totaldistance"):
+                    if num > 500:
+                        best_dist_m = num
+                    elif num >= 1:
+                        best_dist_m = num * 1000
+                elif kl in ("totaltime", "totalduration") and num >= 60:
+                    best_time_s = num
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(obj)
+    distance_km = _meters_to_km(best_dist_m) if best_dist_m else None
+    duree_min = _seconds_to_minutes(best_time_s) if best_time_s else None
+    return distance_km, duree_min
+
+
+def extract_from_api_payload(data: dict | list) -> tuple[float | None, int | None]:
+    km, mins = _extract_header_summaries(data)
+    if km is not None:
+        return km, mins
+    return _walk_totals(data)
+
+
 def is_plausible_route_km(distance_km: float | None) -> bool:
-    return distance_km is not None and distance_km >= MIN_ROUTE_KM
+    return (
+        distance_km is not None
+        and MIN_ROUTE_KM <= distance_km <= MAX_ROUTE_KM
+    )
 
 
-def extract_km_from_page_text(text: str, min_km: float = MIN_ROUTE_KM) -> float | None:
+def extract_route_summary_from_page(text: str) -> tuple[float | None, int | None]:
+    """Km + duree proches l'un de l'autre (panneau resume itineraire)."""
     patterns = [
-        r"(\d[\d\s\u00a0]*(?:[.,]\d+)?)\s*km",
-        r"(\d{2,4}(?:[.,]\d+)?)\s*km",
-        r"distance[^\d]{0,20}(\d[\d\s\u00a0]*(?:[.,]\d+)?)",
-        r"(\d[\d\s\u00a0]{2,7})\s*m(?:\s|èt|etre|$)",
+        r"(\d[\d\s\u00a0]*(?:[.,]\d+)?)\s*km[^\d]{0,120}?(\d+)\s*h(?:\s*(\d+))?\s*min",
+        r"(\d[\d\s\u00a0]*(?:[.,]\d+)?)\s*km[^\d]{0,120}?(\d+)\s*min\b",
     ]
-    values: list[float] = []
     for pat in patterns:
-        is_meters = r"\s*m(?:" in pat
-        for m in re.findall(pat, text, flags=re.I):
-            n = _parse_number(m)
-            if n is None:
-                continue
-            if is_meters and n > 500:
-                n = n / 1000
-            if n >= min_km:
-                values.append(n)
-    return max(values) if values else None
+        m = re.search(pat, text, flags=re.I | re.DOTALL)
+        if not m:
+            continue
+        km = _parse_number(m.group(1))
+        if m.lastindex and m.lastindex >= 3 and m.group(3) is not None:
+            mins = int(m.group(2)) * 60 + int(m.group(3) or 0)
+        else:
+            mins = int(m.group(2))
+        if is_plausible_route_km(km) and mins > 0:
+            return km, mins
+    return None, None
+
+
+def extract_km_from_page_text(text: str) -> float | None:
+    km, _ = extract_route_summary_from_page(text)
+    return km
 
 
 def extract_duration_from_page_text(text: str) -> int | None:
-    m = re.search(r"(\d+)\s*h(?:\s*(\d+))?\s*min", text, flags=re.I)
-    if m:
-        return int(m.group(1)) * 60 + int(m.group(2) or 0)
-    m2 = re.search(r"(\d+)\s*min", text, flags=re.I)
-    return int(m2.group(1)) if m2 else None
+    _, mins = extract_route_summary_from_page(text)
+    return mins

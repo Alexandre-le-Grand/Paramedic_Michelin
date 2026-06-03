@@ -1,6 +1,6 @@
 # Paramedic Michelin
 
-Scraping **ViaMichelin** (Edge en arriere-plan par defaut) + stockage **SQL** (SQLite) et **MongoDB**.
+Calcul d'itineraires **ViaMichelin** (API GraphQL + vmrest, rapide) + stockage **SQL** (SQLite) et **MongoDB**.
 
 ## Installation
 
@@ -29,12 +29,24 @@ Voir `data/dumps/README.md` pour le détail.
 
 ## Utilisation
 
-```bash
-# Scraper depuis le CSV (tests, quelques trajets)
-python src/main.py run
+**Une fois** : lancer Docker Desktop, puis restaurer le dump patron :
 
-# Scraper depuis la base patron (paramedic.transports) — 10 premiers couples uniques
-python src/main.py run --source transports --limit 10
+```powershell
+.\scripts\setup-transports.ps1
+```
+
+```powershell
+# ViaMichelin API — trajets depuis paramedic.transports (~3 s / trajet)
+.\run.cmd run --limit 10
+
+# Tous les couples uniques
+.\run.cmd run
+
+# Petit CSV de test
+.\run.cmd run --source csv
+
+# Mode navigateur Edge (lent, secours uniquement)
+.\run.cmd run --visible
 
 # Debug : voir Edge a l'ecran
 python src/main.py run --visible

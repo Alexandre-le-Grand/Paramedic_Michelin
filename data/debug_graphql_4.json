@@ -1,0 +1,326 @@
+{
+  "data": {
+    "searchAddress": [
+      {
+        "score": 0.9992547035,
+        "formattedName": "Lyon",
+        "contextualizedName": "Auvergne-Rhône-Alpes",
+        "address": {
+          "city": "Lyon",
+          "department": "Rhône",
+          "region": "Auvergne-Rhône-Alpes",
+          "country": {
+            "code": "FRA"
+          },
+          "zipCode": "69001, 69002, 69003, 69004, 69005, 69006, 69007, 69008, 69009"
+        },
+        "mapLocation": {
+          "geometryId": "00005858-5800-1200-0000-00007736b1a9",
+          "location": {
+            "lng": 4.834306,
+            "lat": 45.767306
+          },
+          "viewPort": {
+            "northeast": {
+              "lat": 45.80811,
+              "lng": 4.89837
+            },
+            "southwest": {
+              "lat": 45.70737,
+              "lng": 4.77174
+            }
+          }
+        },
+        "entityType": "CITY"
+      },
+      {
+        "score": 0.980396688,
+        "formattedName": "Aéroport de Lyon-Saint-Exupéry, Aéroport de Lyon Terminal 1, 69125 Colombier-Saugnieu",
+        "contextualizedName": "",
+        "address": {
+          "city": "Colombier-Saugnieu",
+          "department": "Rhône",
+          "region": "Auvergne-Rhône-Alpes",
+          "country": {
+            "code": "FRA"
+          },
+          "zipCode": "69125"
+        },
+        "mapLocation": {
+          "geometryId": "c79f24ba-7ee8-42e2-9c07-3a75f37972e2",
+          "location": {
+            "lng": 5.079403,
+            "lat": 45.720396
+          },
+          "viewPort": {
+            "northeast": {
+              "lat": 45.75281,
+              "lng": 5.09914
+            },
+            "southwest": {
+              "lat": 45.69678,
+              "lng": 5.06752
+            }
+          }
+        },
+        "entityType": null
+      },
+      {
+        "score": 0.9676879644,
+        "formattedName": "Lyons-la-Forêt",
+        "contextualizedName": "Normandie",
+        "address": {
+          "city": "Lyons-la-Forêt",
+          "department": "Eure",
+          "region": "Normandie",
+          "country": {
+            "code": "FRA"
+          },
+          "zipCode": "27480"
+        },
+        "mapLocation": {
+          "geometryId": "00005858-5800-1200-0000-00007d2de9e8",
+          "location": {
+            "lng": 1.476738,
+            "lat": 49.398658
+          },
+          "viewPort": {
+            "northeast": {
+              "lat": 49.42523,
+              "lng": 1.54537
+            },
+            "southwest": {
+              "lat": 49.36834,
+              "lng": 1.40682
+            }
+          }
+        },
+        "entityType": "CITY"
+      },
+      {
+        "score": 0.9535347223,
+        "formattedName": "Lyon Perrache, Cours Charlemagne, 69002 Lyon",
+        "contextualizedName": "",
+        "address": {
+          "city": "Lyon",
+          "department": "Rhône",
+          "region": "Auvergne-Rhône-Alpes",
+          "country": {
+            "code": "FRA"
+          },
+          "zipCode": "69002"
+        },
+        "mapLocation": {
+          "geometryId": null,
+          "location": {
+            "lng": 4.825715,
+            "lat": 45.748609
+          },
+          "viewPort": {
+            "northeast": {
+              "lat": 45.74951,
+              "lng": 4.827
+            },
+            "southwest": {
+              "lat": 45.74771,
+              "lng": 4.82443
+            }
+          }
+        },
+        "entityType": null
+      },
+      {
+        "score": 0.9158391953,
+        "formattedName": "Sainte-Foy-lès-Lyon",
+        "contextualizedName": "Auvergne-Rhône-Alpes",
+        "address": {
+          "city": "Sainte-Foy-lès-Lyon",
+          "department": "Rhône",
+          "region": "Auvergne-Rhône-Alpes",
+          "country": {
+            "code": "FRA"
+          },
+          "zipCode": "69110"
+        },
+        "mapLocation": {
+          "geometryId": "00005858-5800-1200-0000-00007d2e29be",
+          "location": {
+            "lng": 4.805063,
+            "lat": 45.736322
+          },
+          "viewPort": {
+            "northeast": {
+              "lat": 45.75153,
+              "lng": 4.81339
+            },
+            "southwest": {
+              "lat": 45.7209,
+              "lng": 4.77118
+            }
+          }
+        },
+        "entityType": "CITY"
+      },
+      {
+        "score": 0.8343938589,
+        "formattedName": "Pharmacie Lyonnet, 45 Avenue Aristide Briand, 36400 Montgivray",
+        "contextualizedName": "",
+        "address": {
+          "city": "Montgivray",
+          "department": "Indre",
+          "region": "Centre-Val de Loire",
+          "country": {
+            "code": "FRA"
+          },
+          "zipCode": "36400"
+        },
+        "mapLocation": {
+          "geometryId": null,
+          "location": {
+            "lng": 1.984995,
+            "lat": 46.586213
+          },
+          "viewPort": {
+            "northeast": {
+              "lat": 46.58711,
+              "lng": 1.9863
+            },
+            "southwest": {
+              "lat": 46.58531,
+              "lng": 1.98369
+            }
+          }
+        },
+        "entityType": null
+      },
+      {
+        "score": 0.8203316331,
+        "formattedName": "Vieux-Lyon, Place Neuve Saint-Jean, 69005 Lyon",
+        "contextualizedName": "",
+        "address": {
+          "city": "Lyon",
+          "department": "Rhône",
+          "region": "Auvergne-Rhône-Alpes",
+          "country": {
+            "code": "FRA"
+          },
+          "zipCode": "69005"
+        },
+        "mapLocation": {
+          "geometryId": null,
+          "location": {
+            "lng": 4.82748,
+            "lat": 45.762493
+          },
+          "viewPort": {
+            "northeast": {
+              "lat": 45.76339,
+              "lng": 4.82877
+            },
+            "southwest": {
+              "lat": 45.76159,
+              "lng": 4.82619
+            }
+          }
+        },
+        "entityType": null
+      },
+      {
+        "score": 0.8148514628,
+        "formattedName": "Rue des Lyonnais, 36270 Éguzon-Chantôme",
+        "contextualizedName": "",
+        "address": {
+          "city": "Éguzon-Chantôme",
+          "department": "Indre",
+          "region": "Centre-Val de Loire",
+          "country": {
+            "code": "FRA"
+          },
+          "zipCode": "36270"
+        },
+        "mapLocation": {
+          "geometryId": null,
+          "location": {
+            "lng": 1.556964,
+            "lat": 46.410548
+          },
+          "viewPort": {
+            "northeast": {
+              "lat": 46.41066,
+              "lng": 1.5576
+            },
+            "southwest": {
+              "lat": 46.41049,
+              "lng": 1.55629
+            }
+          }
+        },
+        "entityType": null
+      },
+      {
+        "score": 0.6340597272,
+        "formattedName": "Rue de Lyon, Rue de Lyon, 71100 Chalon-sur-Saône",
+        "contextualizedName": "",
+        "address": {
+          "city": "Chalon-sur-Saône",
+          "department": "Saône-et-Loire",
+          "region": "Bourgogne-Franche-Comté",
+          "country": {
+            "code": "FRA"
+          },
+          "zipCode": "71100"
+        },
+        "mapLocation": {
+          "geometryId": null,
+          "location": {
+            "lng": 4.852543,
+            "lat": 46.779855
+          },
+          "viewPort": {
+            "northeast": {
+              "lat": 46.78075,
+              "lng": 4.85386
+            },
+            "southwest": {
+              "lat": 46.77896,
+              "lng": 4.85123
+            }
+          }
+        },
+        "entityType": null
+      },
+      {
+        "score": 0.5617173314,
+        "formattedName": "Lyon Passion, Rue Saint-Alexandre, 69005 Lyon",
+        "contextualizedName": "",
+        "address": {
+          "city": "Lyon",
+          "department": "Rhône",
+          "region": "Auvergne-Rhône-Alpes",
+          "country": {
+            "code": "FRA"
+          },
+          "zipCode": "69005"
+        },
+        "mapLocation": {
+          "geometryId": null,
+          "location": {
+            "lng": 4.81652,
+            "lat": 45.756594
+          },
+          "viewPort": {
+            "northeast": {
+              "lat": 45.75749,
+              "lng": 4.81781
+            },
+            "southwest": {
+              "lat": 45.75569,
+              "lng": 4.81523
+            }
+          }
+        },
+        "entityType": null
+      }
+    ]
+  }
+}
