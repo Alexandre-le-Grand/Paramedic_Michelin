@@ -104,27 +104,49 @@ def result_to_record(result: RouteResult) -> dict:
         "depart_lat": result.depart_lat,
         "depart_lng": result.depart_lng,
         "depart_zip": result.depart_zip,
+        "depart_formatted_name": result.depart_formatted_name,
         "arrivee_lat": result.arrivee_lat,
         "arrivee_lng": result.arrivee_lng,
         "arrivee_zip": result.arrivee_zip,
+        "arrivee_formatted_name": result.arrivee_formatted_name,
         "scraped_at": datetime.now(timezone.utc),
     }
 
 
-def _print_geo(label: str, lat: float | None, lng: float | None, zip_code: str | None) -> None:
+def _print_geo(
+    label: str,
+    lat: float | None,
+    lng: float | None,
+    zip_code: str | None,
+    formatted_name: str | None = None,
+) -> None:
+    if formatted_name:
+        print(f"  {label}: {formatted_name}")
     parts: list[str] = []
     if lat is not None and lng is not None:
         parts.append(f"lat={lat}, lng={lng}")
     if zip_code:
         parts.append(f"CP={zip_code}")
     if parts:
-        print(f"  {label}: {', '.join(parts)}")
+        print(f"  {label} (geo): {', '.join(parts)}")
 
 
 def _print_result(depart: str, arrivee: str, result: RouteResult) -> dict:
     print(f"\nTrajet: {depart} -> {arrivee}")
-    _print_geo("Depart", result.depart_lat, result.depart_lng, result.depart_zip)
-    _print_geo("Arrivee", result.arrivee_lat, result.arrivee_lng, result.arrivee_zip)
+    _print_geo(
+        "Depart",
+        result.depart_lat,
+        result.depart_lng,
+        result.depart_zip,
+        result.depart_formatted_name,
+    )
+    _print_geo(
+        "Arrivee",
+        result.arrivee_lat,
+        result.arrivee_lng,
+        result.arrivee_zip,
+        result.arrivee_formatted_name,
+    )
     record = result_to_record(result)
     print(
         f"  -> {record.get('distance_km')} km, "
@@ -149,7 +171,6 @@ def _resolve_workers(args: argparse.Namespace, use_browser: bool) -> int:
 def _run_parallel_api(
     trajets: list[tuple[str, str]],
     *,
-    avoid_tolls: bool,
     workers: int,
     sql_repo: SqlRepository,
     mongo_repo: MongoRepository,
@@ -162,9 +183,7 @@ def _run_parallel_api(
 
     def _task(pair: tuple[str, str]) -> tuple[str, str, RouteResult]:
         depart, arrivee = pair
-        result = fetch_route_viamichelin(
-            depart, arrivee, avoid_tolls=avoid_tolls
-        )
+        result = fetch_route_viamichelin(depart, arrivee)
         return depart, arrivee, result
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -200,13 +219,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     else:
         headless = True
 
-    from config.settings import VIAMICHELIN_AVOID_TOLLS
-
-    avoid_tolls = False if args.avec_peages else VIAMICHELIN_AVOID_TOLLS
     workers = _resolve_workers(args, use_browser)
-    peages_label = "sans peages" if avoid_tolls else "avec peages (trajet normal)"
     mode_label = f"{workers} requete(s) en parallele" if workers > 1 else "sequentiel"
-    print(f"Calcul ViaMichelin ({peages_label}, {mode_label}) — SQL + MongoDB")
+    print(f"Calcul ViaMichelin ({mode_label}) — SQL + MongoDB")
     sql_repo = SqlRepository()
     mongo_repo = MongoRepository()
     mongo_repo.ping()
@@ -215,7 +230,6 @@ def cmd_run(args: argparse.Namespace) -> None:
         print("ViaMichelin API (GraphQL + vmrest) — sans navigateur")
         _run_parallel_api(
             trajets,
-            avoid_tolls=avoid_tolls,
             workers=workers,
             sql_repo=sql_repo,
             mongo_repo=mongo_repo,
@@ -226,7 +240,6 @@ def cmd_run(args: argparse.Namespace) -> None:
         with ViaMichelinScraper(
             headless=headless,
             use_browser=use_browser,
-            avoid_tolls=avoid_tolls,
         ) as scraper:
             for i, (depart, arrivee) in enumerate(trajets):
                 result = scraper.fetch_route(depart, arrivee)
@@ -292,14 +305,11 @@ def _print_itinerary_section(
     distance_km: float | None,
     duree_minutes: int | None,
     *,
-    avoid_tolls: bool,
     raw_response: dict | list | None,
 ) -> None:
     print(f"\n{'=' * 60}")
     print("ITINERAIRE")
     print(f"{'=' * 60}")
-    peages = "sans peages" if avoid_tolls else "avec peages (trajet normal)"
-    print(f"  Option   : {peages}")
     print(f"  Distance : {distance_km} km" if distance_km is not None else "  Distance : (absente)")
     if duree_minutes is not None:
         h, m = divmod(duree_minutes, 60)
@@ -318,7 +328,6 @@ def _build_test_payload(
     *,
     depart: str,
     arrivee: str,
-    avoid_tolls: bool,
     depart_hits: list[dict],
     arrivee_hits: list[dict],
     distance_km: float | None,
@@ -329,7 +338,6 @@ def _build_test_payload(
     payload = {
         "depart_query": depart,
         "arrivee_query": arrivee,
-        "avoid_tolls": avoid_tolls,
         "depart_hits": [_format_hit_summary(h) for h in depart_hits],
         "arrivee_hits": [_format_hit_summary(h) for h in arrivee_hits],
         "depart_used": _format_hit_summary(depart_hits[0]),
@@ -345,12 +353,10 @@ def _build_test_payload(
 
 
 def cmd_test(args: argparse.Namespace) -> None:
-    from config.settings import VIAMICHELIN_AVOID_TOLLS
     from src.extract import extract_from_api_payload
 
     depart = args.depart.strip()
     arrivee = args.arrivee.strip()
-    avoid_tolls = False if args.avec_peages else VIAMICHELIN_AVOID_TOLLS
     max_hits = max(1, args.hits)
 
     try:
@@ -364,9 +370,7 @@ def cmd_test(args: argparse.Namespace) -> None:
     lon2, lat2 = coords_from_hit(arrivee_hits[0])
 
     try:
-        raw_response = fetch_itinerary_vmrest(
-            lon1, lat1, lon2, lat2, avoid_tolls=avoid_tolls
-        )
+        raw_response = fetch_itinerary_vmrest(lon1, lat1, lon2, lat2)
         distance_km, duree_minutes = extract_from_api_payload(raw_response)
     except Exception as exc:
         print(f"Erreur itineraire : {exc}")
@@ -376,7 +380,6 @@ def cmd_test(args: argparse.Namespace) -> None:
         payload = _build_test_payload(
             depart=depart,
             arrivee=arrivee,
-            avoid_tolls=avoid_tolls,
             depart_hits=depart_hits,
             arrivee_hits=arrivee_hits,
             distance_km=distance_km,
@@ -400,7 +403,6 @@ def cmd_test(args: argparse.Namespace) -> None:
     _print_itinerary_section(
         distance_km,
         duree_minutes,
-        avoid_tolls=avoid_tolls,
         raw_response=raw_response,
     )
     print("\n(JSON : --json ou --out data/test_trajet.json)")
@@ -432,11 +434,6 @@ def main() -> None:
         help="Utiliser le navigateur Edge (lent ; defaut = API ViaMichelin)",
     )
     run_p.add_argument(
-        "--avec-peages",
-        action="store_true",
-        help="Itineraire normal (autoroutes a peage). Defaut : sans peages.",
-    )
-    run_p.add_argument(
         "--workers",
         type=int,
         default=None,
@@ -455,11 +452,6 @@ def main() -> None:
     )
     test_p.add_argument("depart", help="Ville ou adresse de depart")
     test_p.add_argument("arrivee", help="Ville ou adresse d'arrivee")
-    test_p.add_argument(
-        "--avec-peages",
-        action="store_true",
-        help="Itineraire normal (autoroutes a peage). Defaut : sans peages.",
-    )
     test_p.add_argument(
         "--hits",
         type=int,

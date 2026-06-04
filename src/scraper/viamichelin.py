@@ -35,11 +35,9 @@ class ViaMichelinScraper:
         self,
         headless: bool | None = None,
         use_browser: bool = False,
-        avoid_tolls: bool | None = None,
     ) -> None:
         self._headless = BROWSER_HEADLESS if headless is None else headless
         self._use_browser = use_browser
-        self._avoid_tolls = avoid_tolls
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
@@ -94,9 +92,7 @@ class ViaMichelinScraper:
 
     def fetch_route(self, depart: str, arrivee: str) -> RouteResult:
         if not self._use_browser:
-            return fetch_route_viamichelin(
-                depart, arrivee, avoid_tolls=self._avoid_tolls
-            )
+            return fetch_route_viamichelin(depart, arrivee)
         return self._fetch_route_browser(depart, arrivee)
 
     def _fetch_route_browser(self, depart: str, arrivee: str) -> RouteResult:

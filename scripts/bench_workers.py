@@ -9,7 +9,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from config.settings import VIAMICHELIN_AVOID_TOLLS
 from src.scraper.viamichelin_api import fetch_route_viamichelin
 
 # Paires variées pour un mini benchmark
@@ -32,7 +31,7 @@ def run_batch(workers: int) -> tuple[float, int, int]:
 
     def task(pair: tuple[str, str]) -> str:
         d, a = pair
-        r = fetch_route_viamichelin(d, a, avoid_tolls=VIAMICHELIN_AVOID_TOLLS)
+        r = fetch_route_viamichelin(d, a)
         return r.statut
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -47,7 +46,7 @@ def run_batch(workers: int) -> tuple[float, int, int]:
 
 
 def main() -> None:
-    print(f"Benchmark : {len(PAIRS)} trajets, avoid_tolls={VIAMICHELIN_AVOID_TOLLS}\n")
+    print(f"Benchmark : {len(PAIRS)} trajets (itineraire standard avec peages)\n")
     for w in (1, 3, 5):
         elapsed, ok, err = run_batch(w)
         rate = len(PAIRS) / elapsed if elapsed > 0 else 0

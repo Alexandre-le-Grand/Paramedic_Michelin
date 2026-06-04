@@ -8,7 +8,6 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from config.settings import VIAMICHELIN_AVOID_TOLLS
 from src.extract import extract_from_api_payload
 from src.models import RouteResult
 
@@ -80,7 +79,7 @@ def coords_from_hit(hit: dict[str, Any]) -> tuple[float, float]:
 
 
 def geocode_from_query(query: str) -> dict[str, Any]:
-    """Premier resultat geocodage : lat, lng, zip_code."""
+    """Premier resultat geocodage : lat, lng, zip_code, formattedName."""
     hit = search_addresses(query)[0]
     address = hit.get("address") or {}
     loc = (hit.get("mapLocation") or {}).get("location") or {}
@@ -88,6 +87,7 @@ def geocode_from_query(query: str) -> dict[str, Any]:
         "lat": loc.get("lat"),
         "lng": loc.get("lng"),
         "zip_code": address.get("zipCode"),
+        "formatted_name": hit.get("formattedName"),
     }
 
 
@@ -122,11 +122,8 @@ def fetch_itinerary_vmrest(
     lat1: float,
     lon2: float,
     lat2: float,
-    *,
-    avoid_tolls: bool | None = None,
 ) -> dict[str, Any]:
     step_list = f"1:e:{lon1}:{lat1};1:e:{lon2}:{lat2};"
-    avoid = VIAMICHELIN_AVOID_TOLLS if avoid_tolls is None else avoid_tolls
     params = {
         "distUnit": "m",
         "itit": "0",
@@ -136,7 +133,7 @@ def fetch_itinerary_vmrest(
         "lg": "fra",
         "authKey": VMREST_AUTH_KEY,
         "callback": "cb",
-        "avoidTolls": "true" if avoid else "false",
+        "avoidTolls": "false",
     }
     url = (
         "https://vmrest.viamichelin.com/apir/10/iti.json/fra/header?"
@@ -145,17 +142,13 @@ def fetch_itinerary_vmrest(
     return _parse_vmrest_jsonp(_get_text(url))
 
 
-def fetch_route_viamichelin(
-    depart: str, arrivee: str, *, avoid_tolls: bool | None = None
-) -> RouteResult:
+def fetch_route_viamichelin(depart: str, arrivee: str) -> RouteResult:
     try:
         depart_geo = geocode_from_query(depart)
         arrivee_geo = geocode_from_query(arrivee)
         lon1, lat1 = float(depart_geo["lng"]), float(depart_geo["lat"])
         lon2, lat2 = float(arrivee_geo["lng"]), float(arrivee_geo["lat"])
-        payload = fetch_itinerary_vmrest(
-            lon1, lat1, lon2, lat2, avoid_tolls=avoid_tolls
-        )
+        payload = fetch_itinerary_vmrest(lon1, lat1, lon2, lat2)
         distance_km, duree_minutes = extract_from_api_payload(payload)
         if distance_km is None:
             raise ValueError("Distance absente dans la reponse vmrest")
@@ -172,9 +165,11 @@ def fetch_route_viamichelin(
             depart_lat=depart_geo.get("lat"),
             depart_lng=depart_geo.get("lng"),
             depart_zip=depart_geo.get("zip_code"),
+            depart_formatted_name=depart_geo.get("formatted_name"),
             arrivee_lat=arrivee_geo.get("lat"),
             arrivee_lng=arrivee_geo.get("lng"),
             arrivee_zip=arrivee_geo.get("zip_code"),
+            arrivee_formatted_name=arrivee_geo.get("formatted_name"),
         )
     except Exception as exc:
         return RouteResult(

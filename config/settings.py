@@ -23,10 +23,3 @@ BROWSER_CHANNEL = os.getenv("BROWSER_CHANNEL", "msedge")
 BROWSER_HEADLESS = os.getenv("BROWSER_HEADLESS", "true").lower() in ("1", "true", "yes")
 BROWSER_SLOW_MO_MS = int(os.getenv("BROWSER_SLOW_MO_MS", "0" if BROWSER_HEADLESS else "50"))
 SCRAPE_TIMEOUT_MS = int(os.getenv("SCRAPE_TIMEOUT_MS", "120000"))
-
-# ViaMichelin vmrest : avoidTolls=true = eviter les peages (defaut)
-VIAMICHELIN_AVOID_TOLLS = os.getenv("VIAMICHELIN_AVOID_TOLLS", "true").lower() in (
-    "1",
-    "true",
-    "yes",
-)
