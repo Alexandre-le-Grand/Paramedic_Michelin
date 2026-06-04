@@ -39,6 +39,12 @@ Voir `data/dumps/README.md` pour le détail.
 # ViaMichelin API — trajets depuis paramedic.transports (~3 s / trajet)
 .\run.cmd run --limit 10
 
+# Forcer 3 workers au lieu du defaut (5)
+.\run.cmd run --limit 30 --workers 3
+
+# Benchmark 1 vs 3 vs 5 workers
+.\.venv\Scripts\python.exe scripts\bench_workers.py
+
 # Tous les couples uniques (Paris-Bordeaux et Bordeaux-Paris = un seul calcul)
 .\run.cmd run
 

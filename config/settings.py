@@ -16,6 +16,8 @@ TRANSPORTS_COLLECTION = os.getenv("TRANSPORTS_COLLECTION", "transports")
 # csv = data/trajets.csv | transports = paramedic.transports (apres mongorestore)
 TRAJETS_SOURCE = os.getenv("TRAJETS_SOURCE", "transports").strip().lower()
 SCRAPE_DELAY_SECONDS = float(os.getenv("SCRAPE_DELAY_SECONDS", "0.5"))
+# Requetes ViaMichelin en parallele (API uniquement ; 1 = sequentiel)
+SCRAPE_WORKERS = max(1, min(10, int(os.getenv("SCRAPE_WORKERS", "5"))))
 
 BROWSER_CHANNEL = os.getenv("BROWSER_CHANNEL", "msedge")
 BROWSER_HEADLESS = os.getenv("BROWSER_HEADLESS", "true").lower() in ("1", "true", "yes")

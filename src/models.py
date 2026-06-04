@@ -15,3 +15,9 @@ class RouteResult:
     statut: str
     message_erreur: str | None
     raw_response: dict | list | None
+    depart_lat: float | None = None
+    depart_lng: float | None = None
+    depart_zip: str | None = None
+    arrivee_lat: float | None = None
+    arrivee_lng: float | None = None
+    arrivee_zip: str | None = None

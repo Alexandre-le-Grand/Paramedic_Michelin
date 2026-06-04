@@ -68,6 +68,7 @@ Dernière revue : état du dépôt (code, scripts, README, config).
 - [x] Modèle `RouteResult` + statut `ok` / `erreur` + `raw_response` (Mongo)
 
 - [x] Pause entre trajets (`SCRAPE_DELAY_SECONDS`)
+- [x] **Parallèle API** — `SCRAPE_WORKERS` / `--workers` (1–10, défaut 5) + `scripts/bench_workers.py`
 
 
 

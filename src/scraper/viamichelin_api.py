@@ -16,6 +16,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SEARCH_TEMPLATE = json.loads(
     (ROOT / "data" / "viamichelin_search_address.json").read_text(encoding="utf-8")
 )
+SEARCH_FULL_TEMPLATE = json.loads(
+    (ROOT / "data" / "debug_gql_request.txt").read_text(encoding="utf-8")
+)
 GQL_URL = "https://bff.viamichelin.com/graphql"
 VMREST_AUTH_KEY = "JSBS20110216111214120400892678"
 PROXIMITY_FR = {"lng": 2.35, "lat": 46.6}
@@ -42,6 +45,20 @@ def _get_text(url: str) -> str:
         return resp.read().decode()
 
 
+def search_addresses(query: str) -> list[dict[str, Any]]:
+    """Geocodage GraphQL complet (adresse, CP, lat/lng, etc.)."""
+    body = {
+        "operationName": SEARCH_FULL_TEMPLATE["operationName"],
+        "query": SEARCH_FULL_TEMPLATE["query"],
+        "variables": {"query": query.strip(), "proximity": PROXIMITY_FR},
+    }
+    data = _post_json(GQL_URL, body)
+    items = (data.get("data") or {}).get("searchAddress") or []
+    if not items:
+        raise ValueError(f"Lieu introuvable sur ViaMichelin : {query}")
+    return items
+
+
 def search_city(city: str) -> tuple[float, float]:
     query = city.split(",")[0].strip()
     body = {
@@ -55,6 +72,23 @@ def search_city(city: str) -> tuple[float, float]:
         raise ValueError(f"Ville introuvable sur ViaMichelin : {city}")
     loc = items[0]["mapLocation"]["location"]
     return float(loc["lng"]), float(loc["lat"])
+
+
+def coords_from_hit(hit: dict[str, Any]) -> tuple[float, float]:
+    loc = hit["mapLocation"]["location"]
+    return float(loc["lng"]), float(loc["lat"])
+
+
+def geocode_from_query(query: str) -> dict[str, Any]:
+    """Premier resultat geocodage : lat, lng, zip_code."""
+    hit = search_addresses(query)[0]
+    address = hit.get("address") or {}
+    loc = (hit.get("mapLocation") or {}).get("location") or {}
+    return {
+        "lat": loc.get("lat"),
+        "lng": loc.get("lng"),
+        "zip_code": address.get("zipCode"),
+    }
 
 
 def _parse_vmrest_jsonp(text: str) -> dict[str, Any]:
@@ -115,8 +149,10 @@ def fetch_route_viamichelin(
     depart: str, arrivee: str, *, avoid_tolls: bool | None = None
 ) -> RouteResult:
     try:
-        lon1, lat1 = search_city(depart)
-        lon2, lat2 = search_city(arrivee)
+        depart_geo = geocode_from_query(depart)
+        arrivee_geo = geocode_from_query(arrivee)
+        lon1, lat1 = float(depart_geo["lng"]), float(depart_geo["lat"])
+        lon2, lat2 = float(arrivee_geo["lng"]), float(arrivee_geo["lat"])
         payload = fetch_itinerary_vmrest(
             lon1, lat1, lon2, lat2, avoid_tolls=avoid_tolls
         )
@@ -133,6 +169,12 @@ def fetch_route_viamichelin(
             statut="ok",
             message_erreur=None,
             raw_response=payload,
+            depart_lat=depart_geo.get("lat"),
+            depart_lng=depart_geo.get("lng"),
+            depart_zip=depart_geo.get("zip_code"),
+            arrivee_lat=arrivee_geo.get("lat"),
+            arrivee_lng=arrivee_geo.get("lng"),
+            arrivee_zip=arrivee_geo.get("zip_code"),
         )
     except Exception as exc:
         return RouteResult(
