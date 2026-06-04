@@ -47,11 +47,16 @@ def _from_summary_dict(summary: dict[str, Any]) -> tuple[float | None, int | Non
 
 
 def _extract_header_summaries(obj: Any) -> tuple[float | None, int | None]:
-    """totalDist (m) et totalTime (s) dans header.summaries[0]."""
+    """totalDist (m) et totalTime (s) dans header.summaries / summaryList."""
     if isinstance(obj, dict):
         header = obj.get("header") or obj.get("Header")
         if isinstance(header, dict):
-            summaries = header.get("summaries") or header.get("Summaries")
+            summaries = (
+                header.get("summaryList")
+                or header.get("summarylist")
+                or header.get("summaries")
+                or header.get("Summaries")
+            )
             if isinstance(summaries, list) and summaries:
                 first = summaries[0]
                 if isinstance(first, dict):
@@ -104,6 +109,12 @@ def _walk_totals(obj: Any) -> tuple[float | None, int | None]:
 
 
 def extract_from_api_payload(data: dict | list) -> tuple[float | None, int | None]:
+    if isinstance(data, dict):
+        itineraries = data.get("itineraryList") or data.get("itinerarylist")
+        if isinstance(itineraries, list) and itineraries:
+            km, mins = _extract_header_summaries(itineraries[0])
+            if km is not None:
+                return km, mins
     km, mins = _extract_header_summaries(data)
     if km is not None:
         return km, mins

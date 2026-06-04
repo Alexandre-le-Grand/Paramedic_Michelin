@@ -8,6 +8,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from config.settings import VIAMICHELIN_AVOID_TOLLS
 from src.extract import extract_from_api_payload
 from src.models import RouteResult
 
@@ -95,6 +96,7 @@ def fetch_itinerary_vmrest(
         "lg": "fra",
         "authKey": VMREST_AUTH_KEY,
         "callback": "cb",
+        "avoidTolls": "true" if VIAMICHELIN_AVOID_TOLLS else "false",
     }
     url = (
         "https://vmrest.viamichelin.com/apir/10/iti.json/fra/header?"

@@ -56,6 +56,7 @@ python src/main.py list-sql
 ```
 
 Par defaut le navigateur tourne en **headless** (`BROWSER_HEADLESS=true` dans `.env`).  
+Les itineraires sont calcules **sans peages** par defaut (`VIAMICHELIN_AVOID_TOLLS=true`).  
 En base : `source=viamichelin` si le calcul reussit.
 
 ## Fichiers

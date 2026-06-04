@@ -121,7 +121,10 @@ def cmd_run(args: argparse.Namespace) -> None:
     else:
         headless = True
 
-    print("Calcul ViaMichelin — SQL + MongoDB")
+    from config.settings import VIAMICHELIN_AVOID_TOLLS
+
+    peages_label = "sans peages" if VIAMICHELIN_AVOID_TOLLS else "avec peages"
+    print(f"Calcul ViaMichelin ({peages_label}) — SQL + MongoDB")
     sql_repo = SqlRepository()
     mongo_repo = MongoRepository()
     mongo_repo.ping()
