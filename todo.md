@@ -1,50 +1,94 @@
-# Paramedic Michelin — suivi des tâches
-
-## Fait
-
-### Projet & configuration
-- [x] Structure du projet (`src/`, `config/`, `sql/`, `data/`)
-- [x] `requirements.txt` (Playwright, pymongo, python-dotenv)
-- [x] `docker-compose.yml` pour MongoDB
-- [x] `config/settings.py` + `.env` / `.env.example`
-- [x] `README.md` (installation, utilisation, dépannage)
-- [x] `.gitignore` (`.env`, `trajets.db`, `browser_state.json`, `__pycache__`)
-
-### Scraping ViaMichelin
-- [x] Scraper Playwright (`src/scraper/viamichelin.py`) — source `viamichelin` uniquement
-- [x] Une session navigateur pour tout le CSV (pas une fenêtre par trajet)
-- [x] Remplissage départ / arrivée + validation (Entrée, boutons de secours)
-- [x] Fermeture du bandeau cookies Didomi
-- [x] Sauvegarde des cookies dans `data/browser_state.json`
-- [x] Extraction distance (`src/extract.py`) — vmrest + texte page, filtre km ≥ 80
-- [x] Prise du km maximal plausible sur la page (évite les segments partiels)
-- [x] Modèle `RouteResult` (`src/models.py`)
-- [x] Reconnexion automatique si la fenêtre navigateur est fermée
-
-### Corrections & fiabilité
-- [x] Fix timeout bouton « Rechercher » (calcul via Entrée + lecture page)
-- [x] Mode **headless** par défaut (`BROWSER_HEADLESS=true`) — pas de fenêtre Edge
-- [x] Option debug `python src/main.py run --visible`
-- [x] Nettoyage code mort (OSRM, `fetch_routes`, `find_by_route`, `trajets_one.csv`, anciens `__pycache__`)
-
-### Bases de données
-- [x] SQLite `data/trajets.db` + schéma `sql/schema.sql`
-- [x] `SqlRepository` — insert + `list-sql`
-- [x] `MongoRepository` — insert + `raw_response` (réponse brute)
-- [x] Double enregistrement à chaque run (SQL + MongoDB)
-
-### CLI & données
-- [x] `python src/main.py run` — lit `data/trajets.csv`
-- [x] `python src/main.py list-sql` — affiche les derniers trajets SQL
-- [x] Pause entre trajets (`SCRAPE_DELAY_SECONDS`)
-- [x] **9 trajets** dans `data/trajets.csv` (4 initiaux + 5 ajoutés)
-
----
-
-## À faire / améliorations possibles
-
-- [ ] Extraire la **durée** (`duree_minutes`) de façon fiable (souvent `None` aujourd’hui)
-- [ ] Commande CLI pour lister / consulter **MongoDB** (comme `list-sql`)
-- [ ] Éviter les **doublons** en base si on relance `run` sur les mêmes trajets
-- [ ] Tests automatisés (optionnel)
-- [ ] API officielle Michelin (si le patron valide un contrat développeur)
+# Paramedic Michelin — suivi des tâches
+
+Dernière revue : état du dépôt (code, scripts, README, config).
+
+---
+
+## Fait
+
+### Projet & configuration
+- [x] Structure (`src/`, `config/`, `sql/`, `data/`, `scripts/`)
+- [x] `requirements.txt` — Playwright, pymongo, python-dotenv
+- [x] `docker-compose.yml` — MongoDB **8** (`mongo:8`), port `27017`, volume `data/dumps` monté en lecture
+- [x] `config/settings.py` + `.env` / `.env.example` (SQLite, deux bases Mongo, source trajets, délais, navigateur)
+- [x] `README.md` + `data/dumps/README.md` (installation, restauration dump ~356k transports)
+- [x] `.gitignore` — `.env`, `.venv/`, `trajets.db`, `browser_state.json`, `data/dumps/`
+- [x] Lanceurs **`run.cmd`** / **`run.ps1`** — Python du `.venv` sans activation manuelle
+
+### Données d’entrée (patron + test)
+- [x] Dump patron `paramedic.transports` — restauration via `scripts/restore-transports.ps1` / `.sh`
+- [x] `scripts/setup-transports.ps1` — setup + comptage des paires (`count-transport-routes.py`)
+- [x] `TransportsRepository` — lecture `departure.city` / `arrival.city`, agrégation paires uniques
+- [x] **Déduplication aller-retour** — Paris↔Bordeaux = un seul trajet (`src/route_pairs.py` + Mongo `$min`/`$max`)
+- [x] CSV de test `data/trajets.csv` (9 lignes ; doublons sens inverse ignorés au chargement)
+- [x] Source par défaut : `TRAJETS_SOURCE=transports` (configurable : `csv`)
+
+### Calcul ViaMichelin (km + minutes)
+- [x] **Mode rapide par défaut** — sans navigateur (`src/scraper/viamichelin_api.py`)
+  - Géocodage GraphQL (`bff.viamichelin.com`) + itinéraire **vmrest** (`iti.json`)
+  - Template `data/viamichelin_search_address.json`
+- [x] **Mode secours** — Playwright Edge (`--visible`) : cookies `data/browser_state.json`, capture vmrest sur la page
+- [x] Façade `ViaMichelinScraper` — API ou navigateur selon `use_browser`
+- [x] Extraction `src/extract.py` — `totalDist` / `totalTime` (JSON) + repli texte page (km + h/min)
+- [x] Filtre distance plausible `0,5`–`2000` km (plus de seuil fixe à 80 km)
+- [x] Modèle `RouteResult` + statut `ok` / `erreur` + `raw_response` (Mongo)
+- [x] Pause entre trajets (`SCRAPE_DELAY_SECONDS`)
+
+### Stockage des résultats
+- [x] SQLite `data/trajets.db` — schéma `sql/schema.sql`, index `(depart, arrivee)`
+- [x] `SqlRepository` — insert + `list-sql`
+- [x] MongoDB résultats — base `paramedic_michelin`, collection `trajets` (`MongoRepository`, index départ/arrivée + date)
+- [x] Double enregistrement à chaque `run` (SQL + Mongo)
+
+### CLI
+- [x] `run` — `--source transports|csv`, `--limit N`, `--visible`, `--csv`
+- [x] `list-sql` — derniers trajets SQLite
+- [x] Messages d’aide si Mongo vide ou venv absent
+
+### Scripts utilitaires
+- [x] `scripts/test_vmrest.py` — test vmrest / coords
+- [x] `scripts/count-transport-routes.py` — nombre de paires uniques (sans aller-retour)
+
+---
+
+## À faire / améliorations
+
+### Priorité métier (scraping & données)
+- [ ] **Reprise intelligente** — ne pas re-scraper un couple déjà en SQL/Mongo (même sens)
+- [ ] **Réutiliser l’inverse** — si A→B existe, remplir B→A avec les mêmes km/min sans appel ViaMichelin
+- [ ] Valider la **durée** (`duree_minutes`) sur un lot réel (API vmrest la remplit souvent ; vérifier cas limites / erreurs)
+- [ ] Géocodage plus robuste (homonymes, « ville, France » implicite, échecs GraphQL)
+
+### CLI & bases
+- [ ] Commande **`list-mongo`** (équivalent `list-sql` pour `paramedic_michelin.trajets`)
+- [ ] Option **`run --skip-existing`** ou upsert au lieu d’insert systématique
+- [ ] Exposer `raw_response` ou un résumé en SQL (optionnel, aujourd’hui Mongo seulement)
+
+### Projet & qualité
+- [ ] Corriger **`scripts/debug-viamichelin.py`** — import `_dismiss_didomi` absent de `viamichelin.py`
+- [ ] Nettoyer ou **gitignorer** les artefacts `data/debug_*` (fichiers de debug commités)
+- [ ] Rendre **`setup-transports.ps1`** portable (chemin en dur `c:\Users\alexa\Documents\DEV\transports`)
+- [ ] Aligner **README** (table fichiers : `viamichelin_api.py`, `transports_repository.py`, `route_pairs.py`)
+- [ ] Tests automatisés (dedupe, extract, mock vmrest) — optionnel
+- [ ] Contrat **API officielle Michelin** (si le patron valide ; aujourd’hui BFF + vmrest non documentés publiquement)
+
+---
+
+## Référence rapide
+
+| Commande | Effet |
+|----------|--------|
+| `.\run.cmd run --limit 10` | 10 paires depuis `paramedic.transports` (API) |
+| `.\run.cmd run` | Toutes les paires uniques (aller-retour fusionnés) |
+| `.\run.cmd run --source csv` | `data/trajets.csv` |
+| `.\run.cmd run --visible` | Navigateur Edge (lent) |
+| `.\run.cmd list-sql` | Derniers enregistrements SQLite |
+| `.\scripts\setup-transports.ps1` | Docker + restore dump + comptage |
+
+**Bases MongoDB**
+
+| Base | Collection | Rôle |
+|------|------------|------|
+| `paramedic` | `transports` | Entrée (dump patron, lecture seule) |
+| `paramedic_michelin` | `trajets` | Sortie scraping (km, min, statut) |
+

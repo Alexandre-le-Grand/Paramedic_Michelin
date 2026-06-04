@@ -11,7 +11,7 @@ repo = TransportsRepository()
 try:
     print(f"Documents transports : {repo.count_documents()}")
     routes = repo.load_unique_routes()
-    print(f"Paires uniques (villes) : {len(routes)}")
+    print(f"Paires uniques (villes, sans doublon aller-retour) : {len(routes)}")
     for pair in routes[:5]:
         print(f"  {pair[0]} -> {pair[1]}")
 finally:

@@ -38,20 +38,23 @@ class TransportsRepository:
 
     def load_unique_routes(self, limit: int | None = None) -> list[tuple[str, str]]:
         """
-        Paires depart/arrivee uniques (ville) extraites des transports ambulance.
+        Paires depart/arrivee uniques (ville), sans doublon aller-retour :
+        Paris -> Bordeaux et Bordeaux -> Paris ne comptent qu'une fois
+        (sens canonique : ville la plus petite en alphabet, puis l'autre).
         """
         pipeline: list[dict[str, Any]] = [
             {
                 "$match": {
                     "departure.city": {"$exists": True, "$type": "string", "$ne": ""},
                     "arrival.city": {"$exists": True, "$type": "string", "$ne": ""},
+                    "$expr": {"$ne": ["$departure.city", "$arrival.city"]},
                 }
             },
             {
                 "$group": {
                     "_id": {
-                        "depart": "$departure.city",
-                        "arrivee": "$arrival.city",
+                        "depart": {"$min": ["$departure.city", "$arrival.city"]},
+                        "arrivee": {"$max": ["$departure.city", "$arrival.city"]},
                     }
                 }
             },
@@ -71,7 +74,7 @@ class TransportsRepository:
         for doc in self.collection.aggregate(pipeline, allowDiskUse=True):
             depart = (doc.get("depart") or "").strip()
             arrivee = (doc.get("arrivee") or "").strip()
-            if depart and arrivee and depart != arrivee:
+            if depart and arrivee:
                 routes.append((depart, arrivee))
         return routes
 
