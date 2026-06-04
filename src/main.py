@@ -96,7 +96,6 @@ def result_to_record(result: RouteResult) -> dict:
         "depart": result.depart,
         "arrivee": result.arrivee,
         "distance_km": result.distance_km,
-        "duree_minutes": result.duree_minutes,
         "source": result.source,
         "statut": result.statut,
         "message_erreur": result.message_erreur,
@@ -149,13 +148,33 @@ def _print_result(depart: str, arrivee: str, result: RouteResult) -> dict:
     )
     record = result_to_record(result)
     print(
-        f"  -> {record.get('distance_km')} km, "
-        f"{record.get('duree_minutes')} min | "
+        f"  -> {record.get('distance_km')} km | "
         f"source={record['source']} | statut={record['statut']}"
     )
     if result.statut == "erreur" and result.message_erreur:
         print(f"  -> {result.message_erreur}")
     return record
+
+
+def _existing_ok_pairs(
+    sql_repo: SqlRepository, mongo_repo: MongoRepository
+) -> set[tuple[str, str]]:
+    return sql_repo.existing_ok_pairs() | mongo_repo.existing_ok_pairs()
+
+
+def _filter_pending_trajets(
+    trajets: list[tuple[str, str]], existing: set[tuple[str, str]]
+) -> tuple[list[tuple[str, str]], int]:
+    if not existing:
+        return trajets, 0
+    pending: list[tuple[str, str]] = []
+    skipped = 0
+    for pair in trajets:
+        if pair in existing:
+            skipped += 1
+        else:
+            pending.append(pair)
+    return pending, skipped
 
 
 def _resolve_workers(args: argparse.Namespace, use_browser: bool) -> int:
@@ -225,6 +244,22 @@ def cmd_run(args: argparse.Namespace) -> None:
     sql_repo = SqlRepository()
     mongo_repo = MongoRepository()
     mongo_repo.ping()
+
+    total_loaded = len(trajets)
+    if not getattr(args, "force", False):
+        existing = _existing_ok_pairs(sql_repo, mongo_repo)
+        trajets, skipped = _filter_pending_trajets(trajets, existing)
+        if skipped:
+            print(
+                f"Reprise : {skipped} couple(s) deja en SQL/Mongo (ok) — ignores "
+                f"({len(trajets)} restant(s) sur {total_loaded})."
+            )
+        if not trajets:
+            print("Rien a scraper : tous les couples sont deja en base.")
+            mongo_repo.close()
+            return
+    elif total_loaded:
+        print(f"Mode --force : re-scraping de {total_loaded} couple(s).")
 
     if not use_browser and workers > 1:
         print("ViaMichelin API (GraphQL + vmrest) — sans navigateur")
@@ -303,7 +338,6 @@ def _print_geocode_section(label: str, query: str, hits: list[dict], used_index:
 
 def _print_itinerary_section(
     distance_km: float | None,
-    duree_minutes: int | None,
     *,
     raw_response: dict | list | None,
 ) -> None:
@@ -311,14 +345,6 @@ def _print_itinerary_section(
     print("ITINERAIRE")
     print(f"{'=' * 60}")
     print(f"  Distance : {distance_km} km" if distance_km is not None else "  Distance : (absente)")
-    if duree_minutes is not None:
-        h, m = divmod(duree_minutes, 60)
-        duree_label = f"{duree_minutes} min"
-        if h:
-            duree_label += f" ({h}h{m:02d})"
-        print(f"  Duree    : {duree_label}")
-    else:
-        print("  Duree    : (absente)")
     if raw_response:
         print("\n  Reponse vmrest (extrait header/summary) :")
         print(json.dumps(raw_response, indent=2, ensure_ascii=False)[:8000])
@@ -331,7 +357,6 @@ def _build_test_payload(
     depart_hits: list[dict],
     arrivee_hits: list[dict],
     distance_km: float | None,
-    duree_minutes: int | None,
     raw_response: dict | list | None,
     include_raw: bool,
 ) -> dict:
@@ -344,7 +369,6 @@ def _build_test_payload(
         "arrivee_used": _format_hit_summary(arrivee_hits[0]),
         "itinerary": {
             "distance_km": distance_km,
-            "duree_minutes": duree_minutes,
         },
     }
     if include_raw and raw_response is not None:
@@ -371,7 +395,7 @@ def cmd_test(args: argparse.Namespace) -> None:
 
     try:
         raw_response = fetch_itinerary_vmrest(lon1, lat1, lon2, lat2)
-        distance_km, duree_minutes = extract_from_api_payload(raw_response)
+        distance_km = extract_from_api_payload(raw_response)
     except Exception as exc:
         print(f"Erreur itineraire : {exc}")
         sys.exit(1)
@@ -383,7 +407,6 @@ def cmd_test(args: argparse.Namespace) -> None:
             depart_hits=depart_hits,
             arrivee_hits=arrivee_hits,
             distance_km=distance_km,
-            duree_minutes=duree_minutes,
             raw_response=raw_response,
             include_raw=not args.compact,
         )
@@ -402,7 +425,6 @@ def cmd_test(args: argparse.Namespace) -> None:
     _print_geocode_section("ARRIVEE", arrivee, arrivee_hits, used_index=0)
     _print_itinerary_section(
         distance_km,
-        duree_minutes,
         raw_response=raw_response,
     )
     print("\n(JSON : --json ou --out data/test_trajet.json)")
@@ -440,6 +462,11 @@ def main() -> None:
         metavar="N",
         help="Requetes API en parallele (1-10, defaut SCRAPE_WORKERS=5). Ignore avec --visible.",
     )
+    run_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-scraper meme si le couple existe deja en SQL/Mongo (ok).",
+    )
     run_p.set_defaults(func=cmd_run)
 
     list_p = sub.add_parser("list-sql", help="Afficher les trajets en SQL")
@@ -472,7 +499,7 @@ def main() -> None:
     test_p.add_argument(
         "--compact",
         action="store_true",
-        help="JSON sans raw_response vmrest (geocodage + km/min seulement).",
+        help="JSON sans raw_response vmrest (geocodage + km seulement).",
     )
     test_p.set_defaults(func=cmd_test)
 

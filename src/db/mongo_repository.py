@@ -27,6 +27,20 @@ class MongoRepository:
         self.client.admin.command("ping")
         return True
 
+    def existing_ok_pairs(self) -> set[tuple[str, str]]:
+        """Couples depart->arrivee deja calcules avec succes."""
+        pairs: set[tuple[str, str]] = set()
+        cursor = self.collection.find(
+            {"statut": "ok", "distance_km": {"$ne": None}},
+            projection={"depart": 1, "arrivee": 1, "_id": 0},
+        )
+        for doc in cursor:
+            depart = doc.get("depart")
+            arrivee = doc.get("arrivee")
+            if depart and arrivee:
+                pairs.add((depart, arrivee))
+        return pairs
+
     def insert_trajet(self, record: dict[str, Any]) -> str:
         doc = dict(record)
         doc.setdefault("scraped_at", datetime.now(timezone.utc))

@@ -18,7 +18,7 @@ from config.settings import (
 )
 from src.extract import (
     extract_from_api_payload,
-    extract_route_summary_from_page,
+    extract_km_from_page_text,
     is_plausible_route_km,
 )
 from src.models import RouteResult
@@ -119,29 +119,27 @@ class ViaMichelinScraper:
                 depart=depart,
                 arrivee=arrivee,
                 distance_km=None,
-                duree_minutes=None,
                 source="viamichelin",
                 statut="erreur",
                 message_erreur=str(exc),
                 raw_response=None,
             )
 
-        distance_km, duree_minutes = None, None
+        distance_km = None
         raw = None
         for payload in reversed(self._captured):
-            km, mins = extract_from_api_payload(payload)
+            km = extract_from_api_payload(payload)
             if km is not None:
-                distance_km, duree_minutes, raw = km, mins, payload
+                distance_km, raw = km, payload
                 break
         if not is_plausible_route_km(distance_km):
-            distance_km, duree_minutes = extract_route_summary_from_page(body)
+            distance_km = extract_km_from_page_text(body)
 
         if not is_plausible_route_km(distance_km):
             return RouteResult(
                 depart=depart,
                 arrivee=arrivee,
                 distance_km=distance_km,
-                duree_minutes=duree_minutes,
                 source="viamichelin",
                 statut="erreur",
                 message_erreur="Itineraire non recupere dans le navigateur.",
@@ -151,7 +149,6 @@ class ViaMichelinScraper:
             depart=depart,
             arrivee=arrivee,
             distance_km=distance_km,
-            duree_minutes=duree_minutes,
             source="viamichelin",
             statut="ok",
             message_erreur=None,

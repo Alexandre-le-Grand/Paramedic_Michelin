@@ -10,7 +10,6 @@ class RouteResult:
     depart: str
     arrivee: str
     distance_km: float | None
-    duree_minutes: int | None
     source: str
     statut: str
     message_erreur: str | None

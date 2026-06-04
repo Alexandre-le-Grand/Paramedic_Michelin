@@ -112,7 +112,7 @@ Dernière revue : état du dépôt (code, scripts, README, config).
 
 ### Priorité métier (scraping & données)
 
-- [ ] **Reprise intelligente** — ne pas re-scraper un couple déjà en SQL/Mongo (même sens)
+- [x] **Reprise intelligente** — ne pas re-scraper un couple déjà en SQL/Mongo (même sens) ; `run --force` pour forcer
 
 - [ ] **Réutiliser l’inverse** — si A→B existe, remplir B→A avec les mêmes km/min sans appel ViaMichelin
 
@@ -126,7 +126,7 @@ Dernière revue : état du dépôt (code, scripts, README, config).
 
 - [ ] Commande **`list-mongo`** (équivalent `list-sql` pour `paramedic_michelin.trajets`)
 
-- [ ] Option **`run --skip-existing`** ou upsert au lieu d’insert systématique
+- [x] Reprise par defaut au `run` ; option **`run --force`** pour re-scraper
 
 - [ ] Exposer `raw_response` ou un résumé en SQL (optionnel, aujourd’hui Mongo seulement)
 
@@ -141,8 +141,6 @@ Dernière revue : état du dépôt (code, scripts, README, config).
 - [ ] Aligner **README** (table fichiers : `viamichelin_api.py`, `transports_repository.py`, `route_pairs.py`)
 
 - [ ] Tests automatisés (dedupe, extract, mock vmrest) — optionnel
-
-- [ ] Contrat **API officielle Michelin** (si le patron valide ; aujourd’hui BFF + vmrest non documentés publiquement)
 
 
 

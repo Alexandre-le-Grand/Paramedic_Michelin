@@ -28,15 +28,14 @@ class SqlRepository:
             cur = conn.execute(
                 """
                 INSERT INTO trajets (
-                    depart, arrivee, distance_km, duree_minutes,
+                    depart, arrivee, distance_km,
                     source, statut, message_erreur, scraped_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record["depart"],
                     record["arrivee"],
                     record.get("distance_km"),
-                    record.get("duree_minutes"),
                     record.get("source", "viamichelin"),
                     record.get("statut", "ok"),
                     record.get("message_erreur"),
@@ -46,12 +45,24 @@ class SqlRepository:
             conn.commit()
             return int(cur.lastrowid)
 
+    def existing_ok_pairs(self) -> set[tuple[str, str]]:
+        """Couples depart->arrivee deja calcules avec succes."""
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT depart, arrivee
+                FROM trajets
+                WHERE statut = 'ok' AND distance_km IS NOT NULL
+                """
+            ).fetchall()
+        return {(r[0], r[1]) for r in rows}
+
     def list_trajets(self, limit: int = 50) -> list[dict[str, Any]]:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """
-                SELECT id, depart, arrivee, distance_km, duree_minutes,
+                SELECT id, depart, arrivee, distance_km,
                        source, statut, message_erreur, scraped_at
                 FROM trajets
                 ORDER BY id DESC

@@ -149,7 +149,7 @@ def fetch_route_viamichelin(depart: str, arrivee: str) -> RouteResult:
         lon1, lat1 = float(depart_geo["lng"]), float(depart_geo["lat"])
         lon2, lat2 = float(arrivee_geo["lng"]), float(arrivee_geo["lat"])
         payload = fetch_itinerary_vmrest(lon1, lat1, lon2, lat2)
-        distance_km, duree_minutes = extract_from_api_payload(payload)
+        distance_km = extract_from_api_payload(payload)
         if distance_km is None:
             raise ValueError("Distance absente dans la reponse vmrest")
 
@@ -157,7 +157,6 @@ def fetch_route_viamichelin(depart: str, arrivee: str) -> RouteResult:
             depart=depart,
             arrivee=arrivee,
             distance_km=distance_km,
-            duree_minutes=duree_minutes,
             source="viamichelin",
             statut="ok",
             message_erreur=None,
@@ -176,7 +175,6 @@ def fetch_route_viamichelin(depart: str, arrivee: str) -> RouteResult:
             depart=depart,
             arrivee=arrivee,
             distance_km=None,
-            duree_minutes=None,
             source="viamichelin",
             statut="erreur",
             message_erreur=str(exc),
