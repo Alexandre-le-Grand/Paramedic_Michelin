@@ -42,6 +42,9 @@ Voir `data/dumps/README.md` pour le détail.
 # Tous les couples uniques (Paris-Bordeaux et Bordeaux-Paris = un seul calcul)
 .\run.cmd run
 
+# Trajet normal avec autoroutes / peages
+.\run.cmd run --avec-peages --limit 10
+
 # Petit CSV de test
 .\run.cmd run --source csv
 

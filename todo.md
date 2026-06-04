@@ -61,7 +61,7 @@ Dernière revue : état du dépôt (code, scripts, README, config).
 - [x] Façade `ViaMichelinScraper` — API ou navigateur selon `use_browser`
 
 - [x] Extraction `src/extract.py` — `totalDist` / `totalTime` (JSON vmrest `summaryList`) + repli page
-- [x] Itinéraires **sans péages** — `avoidTolls=true` + `VIAMICHELIN_AVOID_TOLLS` dans `.env`
+- [x] Itinéraires **sans péages** par défaut — `avoidTolls=true` ; option CLI `--avec-peages`
 
 - [x] Filtre distance plausible `0,5`–`2000` km (plus de seuil fixe à 80 km)
 

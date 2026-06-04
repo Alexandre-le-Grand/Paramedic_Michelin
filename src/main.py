@@ -123,13 +123,18 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     from config.settings import VIAMICHELIN_AVOID_TOLLS
 
-    peages_label = "sans peages" if VIAMICHELIN_AVOID_TOLLS else "avec peages"
+    avoid_tolls = False if args.avec_peages else VIAMICHELIN_AVOID_TOLLS
+    peages_label = "sans peages" if avoid_tolls else "avec peages (trajet normal)"
     print(f"Calcul ViaMichelin ({peages_label}) — SQL + MongoDB")
     sql_repo = SqlRepository()
     mongo_repo = MongoRepository()
     mongo_repo.ping()
 
-    with ViaMichelinScraper(headless=headless, use_browser=use_browser) as scraper:
+    with ViaMichelinScraper(
+        headless=headless,
+        use_browser=use_browser,
+        avoid_tolls=avoid_tolls,
+    ) as scraper:
         for i, (depart, arrivee) in enumerate(trajets):
             result = scraper.fetch_route(depart, arrivee)
             record = _print_result(depart, arrivee, result)
@@ -172,6 +177,11 @@ def main() -> None:
         "--visible",
         action="store_true",
         help="Utiliser le navigateur Edge (lent ; defaut = API ViaMichelin)",
+    )
+    run_p.add_argument(
+        "--avec-peages",
+        action="store_true",
+        help="Itineraire normal (autoroutes a peage). Defaut : sans peages.",
     )
     run_p.set_defaults(func=cmd_run)
 

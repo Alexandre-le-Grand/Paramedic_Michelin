@@ -84,9 +84,15 @@ def _parse_vmrest_jsonp(text: str) -> dict[str, Any]:
 
 
 def fetch_itinerary_vmrest(
-    lon1: float, lat1: float, lon2: float, lat2: float
+    lon1: float,
+    lat1: float,
+    lon2: float,
+    lat2: float,
+    *,
+    avoid_tolls: bool | None = None,
 ) -> dict[str, Any]:
     step_list = f"1:e:{lon1}:{lat1};1:e:{lon2}:{lat2};"
+    avoid = VIAMICHELIN_AVOID_TOLLS if avoid_tolls is None else avoid_tolls
     params = {
         "distUnit": "m",
         "itit": "0",
@@ -96,7 +102,7 @@ def fetch_itinerary_vmrest(
         "lg": "fra",
         "authKey": VMREST_AUTH_KEY,
         "callback": "cb",
-        "avoidTolls": "true" if VIAMICHELIN_AVOID_TOLLS else "false",
+        "avoidTolls": "true" if avoid else "false",
     }
     url = (
         "https://vmrest.viamichelin.com/apir/10/iti.json/fra/header?"
@@ -105,11 +111,15 @@ def fetch_itinerary_vmrest(
     return _parse_vmrest_jsonp(_get_text(url))
 
 
-def fetch_route_viamichelin(depart: str, arrivee: str) -> RouteResult:
+def fetch_route_viamichelin(
+    depart: str, arrivee: str, *, avoid_tolls: bool | None = None
+) -> RouteResult:
     try:
         lon1, lat1 = search_city(depart)
         lon2, lat2 = search_city(arrivee)
-        payload = fetch_itinerary_vmrest(lon1, lat1, lon2, lat2)
+        payload = fetch_itinerary_vmrest(
+            lon1, lat1, lon2, lat2, avoid_tolls=avoid_tolls
+        )
         distance_km, duree_minutes = extract_from_api_payload(payload)
         if distance_km is None:
             raise ValueError("Distance absente dans la reponse vmrest")
