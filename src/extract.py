@@ -146,13 +146,3 @@ def extract_route_summary_from_page(text: str) -> tuple[float | None, int | None
         if is_plausible_route_km(km) and mins > 0:
             return km, mins
     return None, None
-
-
-def extract_km_from_page_text(text: str) -> float | None:
-    km, _ = extract_route_summary_from_page(text)
-    return km
-
-
-def extract_duration_from_page_text(text: str) -> int | None:
-    _, mins = extract_route_summary_from_page(text)
-    return mins

@@ -5,3 +5,8 @@ __pycache__/
 data/trajets.db
 data/browser_state.json
 data/dumps/
+data/debug_graphql_*.json
+data/debug_body.txt
+data/debug_page_body.txt
+data/debug_vmrest.json
+data/test_trajet.json

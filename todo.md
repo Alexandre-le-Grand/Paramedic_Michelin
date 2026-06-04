@@ -134,9 +134,7 @@ Dernière revue : état du dépôt (code, scripts, README, config).
 
 ### Projet & qualité
 
-- [ ] Corriger **`scripts/debug-viamichelin.py`** — import `_dismiss_didomi` absent de `viamichelin.py`
-
-- [ ] Nettoyer ou **gitignorer** les artefacts `data/debug_*` (fichiers de debug commités)
+- [x] Nettoyage artefacts debug (`debug_graphql_*.json`, `debug_body.txt`, `debug_page_body.txt`) + script `debug-viamichelin.py` supprimé ; `debug_gql_request.txt` conservé (template GraphQL)
 
 - [ ] Rendre **`setup-transports.ps1`** portable (chemin en dur `c:\Users\alexa\Documents\DEV\transports`)
 
