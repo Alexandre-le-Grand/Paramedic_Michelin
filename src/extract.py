@@ -114,16 +114,83 @@ def is_plausible_route_km(distance_km: float | None) -> bool:
     )
 
 
-def extract_km_from_page_text(text: str) -> float | None:
-    """Km depuis le panneau resume itineraire (navigateur)."""
-    patterns = [
-        r"(\d[\d\s\u00a0]*(?:[.,]\d+)?)\s*km",
-    ]
-    for pat in patterns:
-        m = re.search(pat, text, flags=re.I | re.DOTALL)
-        if not m:
-            continue
+def haversine_km(
+    lat1: float, lon1: float, lat2: float, lon2: float
+) -> float:
+    """Distance a vol d'oiseau (km)."""
+    from math import asin, cos, radians, sin, sqrt
+
+    r = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(
+        dlon / 2
+    ) ** 2
+    return 2 * r * asin(sqrt(a))
+
+
+def min_road_km_from_coords(
+    lat1: float | None,
+    lon1: float | None,
+    lat2: float | None,
+    lon2: float | None,
+    *,
+    factor: float = 0.75,
+) -> float | None:
+    """Km routier minimum plausible entre deux points geocodes."""
+    if None in (lat1, lon1, lat2, lon2):
+        return None
+    straight = haversine_km(float(lat1), float(lon1), float(lat2), float(lon2))
+    return round(straight * factor, 1)
+
+
+def max_road_km_from_coords(
+    lat1: float | None,
+    lon1: float | None,
+    lat2: float | None,
+    lon2: float | None,
+    *,
+    factor: float = 2.2,
+) -> float | None:
+    """Km routier maximum plausible (evite les '20 km' fantomes sur la page)."""
+    if None in (lat1, lon1, lat2, lon2):
+        return None
+    straight = haversine_km(float(lat1), float(lon1), float(lat2), float(lon2))
+    return round(max(straight * factor, MIN_ROUTE_KM * 2), 1)
+
+
+def is_plausible_road_km_between(
+    distance_km: float | None,
+    lat1: float | None,
+    lon1: float | None,
+    lat2: float | None,
+    lon2: float | None,
+) -> bool:
+    if not is_plausible_route_km(distance_km):
+        return False
+    min_km = min_road_km_from_coords(lat1, lon1, lat2, lon2)
+    max_km = max_road_km_from_coords(lat1, lon1, lat2, lon2)
+    if min_km is not None and distance_km < min_km:
+        return False
+    if max_km is not None and distance_km > max_km:
+        return False
+    return True
+
+
+def extract_km_from_page_text(
+    text: str,
+    *,
+    min_km: float | None = None,
+) -> float | None:
+    """Km depuis la page resultats — prend le plus grand >= min_km si fourni."""
+    candidates: list[float] = []
+    for m in re.finditer(r"(\d[\d\s\u00a0]*(?:[.,]\d+)?)\s*km", text, flags=re.I):
         km = _parse_number(m.group(1))
         if is_plausible_route_km(km):
-            return km
-    return None
+            candidates.append(km)
+    if not candidates:
+        return None
+    if min_km is not None:
+        valid = [km for km in candidates if km >= min_km]
+        return max(valid) if valid else None
+    return max(candidates)

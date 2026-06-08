@@ -124,7 +124,7 @@ Dernière revue : état du dépôt (code, scripts, README, config).
 
 ### CLI & bases
 
-- [ ] Commande **`list-mongo`** (équivalent `list-sql` pour `paramedic_michelin.trajets`)
+- [x] Commande **`list-mongo`** (+ `clean-mongo`, `seed-mongo`, `run --source mongo`)
 
 - [x] Reprise par defaut au `run` ; option **`run --force`** pour re-scraper
 

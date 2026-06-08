@@ -18,6 +18,26 @@ TRAJETS_SOURCE = os.getenv("TRAJETS_SOURCE", "transports").strip().lower()
 SCRAPE_DELAY_SECONDS = float(os.getenv("SCRAPE_DELAY_SECONDS", "0.5"))
 # Requetes ViaMichelin en parallele (API uniquement ; 1 = sequentiel)
 SCRAPE_WORKERS = max(1, min(10, int(os.getenv("SCRAPE_WORKERS", "5"))))
+# Retry HTTP 429/502/503/504 (serveur ViaMichelin sature)
+SCRAPE_RETRY_MAX = max(1, int(os.getenv("SCRAPE_RETRY_MAX", "5")))
+SCRAPE_RETRY_BASE_SECONDS = float(os.getenv("SCRAPE_RETRY_BASE_SECONDS", "2"))
+# Appels HTTP ViaMichelin en parallele (limite la saturation 503)
+SCRAPE_API_CONCURRENCY = max(1, min(10, int(os.getenv("SCRAPE_API_CONCURRENCY", "3"))))
+# Secours navigateur si API 503/429 (defaut false ; activer via --browser-fallback)
+SCRAPE_BROWSER_FALLBACK = os.getenv("SCRAPE_BROWSER_FALLBACK", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+# OSRM si ViaMichelin vmrest en 503 (defaut : desactive ; activer via --osrm)
+SCRAPE_OSRM_FALLBACK = os.getenv("SCRAPE_OSRM_FALLBACK", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+OSRM_BASE_URL = os.getenv(
+    "OSRM_BASE_URL", "https://router.project-osrm.org"
+).rstrip("/")
 
 BROWSER_CHANNEL = os.getenv("BROWSER_CHANNEL", "msedge")
 BROWSER_HEADLESS = os.getenv("BROWSER_HEADLESS", "true").lower() in ("1", "true", "yes")

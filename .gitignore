@@ -10,3 +10,4 @@ data/debug_body.txt
 data/debug_page_body.txt
 data/debug_vmrest.json
 data/test_trajet.json
+data/viamichelin_monitor.log

@@ -17,8 +17,10 @@ class RouteResult:
     depart_lat: float | None = None
     depart_lng: float | None = None
     depart_zip: str | None = None
+    depart_departement: str | None = None
     depart_formatted_name: str | None = None
     arrivee_lat: float | None = None
     arrivee_lng: float | None = None
     arrivee_zip: str | None = None
+    arrivee_departement: str | None = None
     arrivee_formatted_name: str | None = None

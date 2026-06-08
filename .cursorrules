@@ -1,0 +1,11 @@
+# Paramedic Michelin — règles projet
+
+## Calcul des km (distances)
+
+Pour toute recherche ou implémentation de distance entre villes, **la voie par défaut est toujours l’API ViaMichelin** (géocodage GraphQL + itinéraire vmrest), sans navigateur.
+
+Les secours ne sont **jamais** activés par défaut :
+- **OSRM** : uniquement sur demande explicite (`--osrm` ou `SCRAPE_OSRM_FALLBACK=true`)
+- **Navigateur** : uniquement sur demande explicite (`--browser-fallback` ou `--visible`)
+
+Ne pas inverser cette priorité ni activer OSRM/navigateur par défaut dans le code, la config ou la doc sans demande explicite de l’utilisateur.

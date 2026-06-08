@@ -3,11 +3,20 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
 
+from config.settings import (
+    SCRAPE_API_CONCURRENCY,
+    SCRAPE_RETRY_BASE_SECONDS,
+    SCRAPE_RETRY_MAX,
+)
+from src.city_departments import geocode_search_query
 from src.extract import extract_from_api_payload
 from src.models import RouteResult
 
@@ -26,32 +35,74 @@ _HTTP_HEADERS = {
     "Origin": "https://www.viamichelin.fr",
     "Referer": "https://www.viamichelin.fr/",
 }
+_RETRYABLE_HTTP = frozenset({429, 502, 503, 504})
+_API_SEMAPHORE = threading.Semaphore(SCRAPE_API_CONCURRENCY)
 
 
-def _post_json(url: str, body: dict[str, Any]) -> dict[str, Any]:
+def _fetch_bytes(
+    req: urllib.request.Request,
+    *,
+    timeout: int = 30,
+    retry_max: int | None = None,
+) -> bytes:
+    attempts = max(1, retry_max if retry_max is not None else SCRAPE_RETRY_MAX)
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            with _API_SEMAPHORE:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return resp.read()
+        except urllib.error.HTTPError as exc:
+            last_exc = exc
+            if exc.code not in _RETRYABLE_HTTP or attempt >= attempts - 1:
+                raise
+            wait = SCRAPE_RETRY_BASE_SECONDS * (2**attempt)
+            print(
+                f"  ViaMichelin HTTP {exc.code} — nouvel essai dans {wait:.0f}s "
+                f"({attempt + 2}/{attempts})..."
+            )
+            time.sleep(wait)
+        except urllib.error.URLError as exc:
+            last_exc = exc
+            if attempt >= attempts - 1:
+                raise
+            wait = SCRAPE_RETRY_BASE_SECONDS * (2**attempt)
+            print(
+                f"  ViaMichelin reseau — nouvel essai dans {wait:.0f}s "
+                f"({attempt + 2}/{attempts})..."
+            )
+            time.sleep(wait)
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("fetch_bytes: echec inattendu")
+
+
+def _post_json(
+    url: str, body: dict[str, Any], *, retry_max: int | None = None
+) -> dict[str, Any]:
     req = urllib.request.Request(
         url,
         data=json.dumps(body).encode(),
         headers={**_HTTP_HEADERS, "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode())
+    return json.loads(_fetch_bytes(req, retry_max=retry_max).decode())
 
 
-def _get_text(url: str) -> str:
+def _get_text(url: str, *, retry_max: int | None = None) -> str:
     req = urllib.request.Request(url, headers=_HTTP_HEADERS)
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.read().decode()
+    return _fetch_bytes(req, retry_max=retry_max).decode()
 
 
-def search_addresses(query: str) -> list[dict[str, Any]]:
+def search_addresses(
+    query: str, *, retry_max: int | None = None
+) -> list[dict[str, Any]]:
     """Geocodage GraphQL complet (adresse, CP, lat/lng, etc.)."""
     body = {
         "operationName": SEARCH_FULL_TEMPLATE["operationName"],
         "query": SEARCH_FULL_TEMPLATE["query"],
         "variables": {"query": query.strip(), "proximity": PROXIMITY_FR},
     }
-    data = _post_json(GQL_URL, body)
+    data = _post_json(GQL_URL, body, retry_max=retry_max)
     items = (data.get("data") or {}).get("searchAddress") or []
     if not items:
         raise ValueError(f"Lieu introuvable sur ViaMichelin : {query}")
@@ -78,20 +129,60 @@ def coords_from_hit(hit: dict[str, Any]) -> tuple[float, float]:
     return float(loc["lng"]), float(loc["lat"])
 
 
-def geocode_from_query(query: str) -> dict[str, Any]:
-    """Premier resultat geocodage : lat, lng, zip_code, formattedName."""
-    hit = search_addresses(query)[0]
+def _geocode_hit_score(query: str, hit: dict[str, Any]) -> int:
+    """Score plus haut = meilleur (commune, pas POI type Lidl)."""
+    needle = query.split(",")[0].strip().lower()
+    addr = hit.get("address") or {}
+    city = (addr.get("city") or "").strip().lower()
+    name = (hit.get("formattedName") or "").strip().lower()
+    entity = (hit.get("entityType") or "").upper()
+    score = 0
+    if entity == "CITY":
+        score += 30
+    if any(token in name for token in ("lidl", "leclerc", "carrefour", "intermarche")):
+        score -= 80
+    if needle == city or name.startswith(needle):
+        score += 50
+    elif city and needle.startswith(city):
+        score += 40
+    elif needle in name:
+        score += 15
+    return score
+
+
+def _pick_geocode_hit(query: str, hits: list[dict[str, Any]]) -> dict[str, Any]:
+    """Prefere une commune (CITY) dont le nom correspond a la requete."""
+    return max(hits, key=lambda h: _geocode_hit_score(query, h))
+
+
+def geocode_from_query(query: str, *, retry_max: int | None = None) -> dict[str, Any]:
+    """Meilleur resultat geocodage : lat, lng, zip_code, department, formattedName."""
+    hits = search_addresses(query, retry_max=retry_max)
+    hit = _pick_geocode_hit(query, hits)
+    base = query.split(",")[0].strip()
+    if (hit.get("entityType") or "").upper() != "CITY" and "-" in base:
+        lowered = base.lower()
+        if any(token in lowered for token in ("-sur-", "-sous-", "-en-")):
+            short = base.split("-")[0].strip()
+            if len(short) >= 4 and short.lower() != base.lower():
+                hits_short = search_addresses(short, retry_max=retry_max)
+                hit_short = _pick_geocode_hit(short, hits_short)
+                if _geocode_hit_score(short, hit_short) >= _geocode_hit_score(
+                    query, hit
+                ):
+                    hit = hit_short
     address = hit.get("address") or {}
     loc = (hit.get("mapLocation") or {}).get("location") or {}
     return {
         "lat": loc.get("lat"),
         "lng": loc.get("lng"),
         "zip_code": address.get("zipCode"),
+        "department": address.get("department"),
         "formatted_name": hit.get("formattedName"),
     }
 
 
-def _parse_vmrest_jsonp(text: str) -> dict[str, Any]:
+def parse_vmrest_response(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if stripped.startswith("{"):
         payload = json.loads(stripped)
@@ -117,12 +208,8 @@ def _parse_vmrest_jsonp(text: str) -> dict[str, Any]:
     raise ValueError(f"Reponse vmrest illisible : {text[:120]}")
 
 
-def fetch_itinerary_vmrest(
-    lon1: float,
-    lat1: float,
-    lon2: float,
-    lat2: float,
-) -> dict[str, Any]:
+def build_vmrest_url(lon1: float, lat1: float, lon2: float, lat2: float) -> str:
+    """URL vmrest itineraire (coords WGS84)."""
     step_list = f"1:e:{lon1}:{lat1};1:e:{lon2}:{lat2};"
     params = {
         "distUnit": "m",
@@ -135,20 +222,66 @@ def fetch_itinerary_vmrest(
         "callback": "cb",
         "avoidTolls": "false",
     }
-    url = (
+    return (
         "https://vmrest.viamichelin.com/apir/10/iti.json/fra/header?"
         + urllib.parse.urlencode(params)
     )
-    return _parse_vmrest_jsonp(_get_text(url))
 
 
-def fetch_route_viamichelin(depart: str, arrivee: str) -> RouteResult:
+def fetch_itinerary_vmrest(
+    lon1: float,
+    lat1: float,
+    lon2: float,
+    lat2: float,
+    *,
+    retry_max: int | None = None,
+) -> dict[str, Any]:
+    return parse_vmrest_response(
+        _get_text(build_vmrest_url(lon1, lat1, lon2, lat2), retry_max=retry_max)
+    )
+
+
+def is_transient_api_error(message: str | None) -> bool:
+    """503/429 etc. — ne pas figer en base, retenter au prochain run."""
+    if not message:
+        return False
+    msg = message.lower()
+    return any(
+        token in msg
+        for token in (
+            "503",
+            "502",
+            "504",
+            "429",
+            "service unavailable",
+            "at capacity",
+            "too many requests",
+        )
+    )
+
+
+def fetch_route_viamichelin(
+    depart: str,
+    arrivee: str,
+    *,
+    depart_departement: str | None = None,
+    arrivee_departement: str | None = None,
+    retry_max: int | None = None,
+) -> RouteResult:
     try:
-        depart_geo = geocode_from_query(depart)
-        arrivee_geo = geocode_from_query(arrivee)
+        depart_geo = geocode_from_query(
+            geocode_search_query(depart, depart_departement),
+            retry_max=retry_max,
+        )
+        arrivee_geo = geocode_from_query(
+            geocode_search_query(arrivee, arrivee_departement),
+            retry_max=retry_max,
+        )
         lon1, lat1 = float(depart_geo["lng"]), float(depart_geo["lat"])
         lon2, lat2 = float(arrivee_geo["lng"]), float(arrivee_geo["lat"])
-        payload = fetch_itinerary_vmrest(lon1, lat1, lon2, lat2)
+        payload = fetch_itinerary_vmrest(
+            lon1, lat1, lon2, lat2, retry_max=retry_max
+        )
         distance_km = extract_from_api_payload(payload)
         if distance_km is None:
             raise ValueError("Distance absente dans la reponse vmrest")
@@ -164,10 +297,12 @@ def fetch_route_viamichelin(depart: str, arrivee: str) -> RouteResult:
             depart_lat=depart_geo.get("lat"),
             depart_lng=depart_geo.get("lng"),
             depart_zip=depart_geo.get("zip_code"),
+            depart_departement=depart_geo.get("department") or depart_departement,
             depart_formatted_name=depart_geo.get("formatted_name"),
             arrivee_lat=arrivee_geo.get("lat"),
             arrivee_lng=arrivee_geo.get("lng"),
             arrivee_zip=arrivee_geo.get("zip_code"),
+            arrivee_departement=arrivee_geo.get("department") or arrivee_departement,
             arrivee_formatted_name=arrivee_geo.get("formatted_name"),
         )
     except Exception as exc:
