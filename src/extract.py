@@ -94,8 +94,41 @@ def _walk_distance(obj: Any) -> float | None:
     return _meters_to_km(best_dist_m) if best_dist_m else None
 
 
+def _km_from_route_distance(rd: dict[str, Any]) -> float | None:
+    value = _parse_number(rd.get("value"))
+    if value is None or value <= 0:
+        return None
+    unit = (rd.get("unit") or "").upper()
+    if unit in ("KILOMETER", "KM", "KILOMETRE", "KILOMÈTRE"):
+        return round(value, 1)
+    if unit in ("METER", "M", "METRE", "MÈTRE"):
+        return _meters_to_km(value)
+    if value > 500:
+        return _meters_to_km(value)
+    return round(value, 1)
+
+
+def _extract_search_itinerary_distance(data: dict[str, Any]) -> float | None:
+    """Distance depuis GraphQL searchItinerary (remplace vmrest quand HS)."""
+    node = data.get("searchItinerary") or data.get("data", {}).get("searchItinerary")
+    if not isinstance(node, dict):
+        return None
+    if node.get("__typename") == "SearchItineraryNotFoundResult":
+        return None
+    routes = node.get("routes")
+    if not isinstance(routes, list) or not routes:
+        return None
+    rd = routes[0].get("routeDistance")
+    if isinstance(rd, dict):
+        return _km_from_route_distance(rd)
+    return None
+
+
 def extract_from_api_payload(data: dict | list) -> float | None:
     if isinstance(data, dict):
+        km = _extract_search_itinerary_distance(data)
+        if km is not None:
+            return km
         itineraries = data.get("itineraryList") or data.get("itinerarylist")
         if isinstance(itineraries, list) and itineraries:
             km = _extract_header_distance(itineraries[0])

@@ -1,5 +1,5 @@
 """
-ViaMichelin : API (GraphQL + vmrest) par defaut.
+ViaMichelin : API GraphQL SearchItinerary par defaut (vmrest en secours).
 Navigateur Playwright : --visible (tout) ou --browser-fallback (secours).
 """
 from __future__ import annotations
@@ -79,7 +79,7 @@ class ViaMichelinScraper:
         if self._use_browser:
             self._start_browser()
         else:
-            print("ViaMichelin API (GraphQL + vmrest) — sans navigateur")
+            print("ViaMichelin API (GraphQL SearchItinerary) — sans navigateur")
         return self
 
     def _start_browser(self) -> None:

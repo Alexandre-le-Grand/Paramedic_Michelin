@@ -1,0 +1,4 @@
+{
+  "operationName": "SearchItinerary",
+  "query": "query SearchItinerary($input: SearchItineraryInput!) {\n  searchItinerary(input: $input) {\n    ... on SearchItinerarySuccessResult {\n      __typename\n      routes {\n        routeDistance {\n          value\n          unit\n        }\n        duration\n      }\n    }\n    ... on SearchItineraryNotFoundResult {\n      message\n    }\n    __typename\n  }\n}"
+}

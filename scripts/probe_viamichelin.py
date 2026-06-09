@@ -19,7 +19,9 @@ HEADERS = {
     "Origin": "https://www.viamichelin.fr",
     "Referer": "https://www.viamichelin.fr/",
 }
-GQL_BODY = json.loads((ROOT / "data" / "debug_gql_request.txt").read_text(encoding="utf-8"))
+GQL_BODY = json.loads(
+    (ROOT / "data" / "viamichelin_search_address_full.json").read_text(encoding="utf-8")
+)
 
 
 def probe_get(url: str, label: str) -> dict:

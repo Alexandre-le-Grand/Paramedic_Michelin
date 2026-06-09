@@ -1,4 +1,4 @@
-"""ViaMichelin : geocodage GraphQL + itineraire vmrest (sans navigateur)."""
+"""ViaMichelin : geocodage GraphQL + itineraire GraphQL SearchItinerary (vmrest en secours)."""
 from __future__ import annotations
 
 import json
@@ -25,7 +25,10 @@ SEARCH_TEMPLATE = json.loads(
     (ROOT / "data" / "viamichelin_search_address.json").read_text(encoding="utf-8")
 )
 SEARCH_FULL_TEMPLATE = json.loads(
-    (ROOT / "data" / "debug_gql_request.txt").read_text(encoding="utf-8")
+    (ROOT / "data" / "viamichelin_search_address_full.json").read_text(encoding="utf-8")
+)
+ITINERARY_TEMPLATE = json.loads(
+    (ROOT / "data" / "viamichelin_search_itinerary.json").read_text(encoding="utf-8")
 )
 GQL_URL = "https://bff.viamichelin.com/graphql"
 VMREST_AUTH_KEY = "JSBS20110216111214120400892678"
@@ -241,6 +244,48 @@ def fetch_itinerary_vmrest(
     )
 
 
+def _itinerary_label(city: str, geo: dict[str, Any]) -> str:
+    return (geo.get("formatted_name") or city).strip() or city
+
+
+def fetch_itinerary_graphql(
+    depart_geo: dict[str, Any],
+    arrivee_geo: dict[str, Any],
+    *,
+    depart: str,
+    arrivee: str,
+    retry_max: int | None = None,
+) -> dict[str, Any]:
+    """Itineraire via GraphQL SearchItinerary (API actuelle du site web)."""
+    lon1, lat1 = float(depart_geo["lng"]), float(depart_geo["lat"])
+    lon2, lat2 = float(arrivee_geo["lng"]), float(arrivee_geo["lat"])
+    body = {
+        "operationName": ITINERARY_TEMPLATE["operationName"],
+        "query": ITINERARY_TEMPLATE["query"],
+        "variables": {
+            "input": {
+                "departureName": _itinerary_label(depart, depart_geo),
+                "arrivalName": _itinerary_label(arrivee, arrivee_geo),
+                "mode": "CAR",
+                "traffic": "NONE",
+                "distanceSystem": "METRIC",
+                "device": "DESKTOP",
+                "coordinates": [
+                    {"lat": lat1, "lng": lon1},
+                    {"lat": lat2, "lng": lon2},
+                ],
+            }
+        },
+    }
+    data = _post_json(GQL_URL, body, retry_max=retry_max)
+    if data.get("errors"):
+        raise ValueError(data["errors"][0].get("message", str(data["errors"])))
+    result = (data.get("data") or {}).get("searchItinerary") or {}
+    if result.get("__typename") == "SearchItineraryNotFoundResult":
+        raise ValueError(result.get("message") or "Itineraire introuvable")
+    return {"searchItinerary": result}
+
+
 def is_transient_api_error(message: str | None) -> bool:
     """503/429 etc. — ne pas figer en base, retenter au prochain run."""
     if not message:
@@ -277,14 +322,44 @@ def fetch_route_viamichelin(
             geocode_search_query(arrivee, arrivee_departement),
             retry_max=retry_max,
         )
-        lon1, lat1 = float(depart_geo["lng"]), float(depart_geo["lat"])
-        lon2, lat2 = float(arrivee_geo["lng"]), float(arrivee_geo["lat"])
-        payload = fetch_itinerary_vmrest(
-            lon1, lat1, lon2, lat2, retry_max=retry_max
-        )
-        distance_km = extract_from_api_payload(payload)
+        payload: dict[str, Any] | None = None
+        distance_km: float | None = None
+        gql_error: str | None = None
+        try:
+            payload = fetch_itinerary_graphql(
+                depart_geo,
+                arrivee_geo,
+                depart=depart,
+                arrivee=arrivee,
+                retry_max=retry_max,
+            )
+            distance_km = extract_from_api_payload(payload)
+        except Exception as exc:
+            gql_error = str(exc)
+            if not is_transient_api_error(gql_error):
+                raise
+
         if distance_km is None:
-            raise ValueError("Distance absente dans la reponse vmrest")
+            lon1, lat1 = float(depart_geo["lng"]), float(depart_geo["lat"])
+            lon2, lat2 = float(arrivee_geo["lng"]), float(arrivee_geo["lat"])
+            try:
+                payload = fetch_itinerary_vmrest(
+                    lon1, lat1, lon2, lat2, retry_max=retry_max
+                )
+                distance_km = extract_from_api_payload(payload)
+            except Exception as vm_exc:
+                if gql_error and is_transient_api_error(str(vm_exc)):
+                    raise ValueError(
+                        f"GraphQL et vmrest indisponibles : {gql_error}"
+                    ) from vm_exc
+                if gql_error:
+                    raise ValueError(gql_error) from vm_exc
+                raise
+
+        if distance_km is None:
+            raise ValueError(
+                gql_error or "Distance absente dans la reponse ViaMichelin"
+            )
 
         return RouteResult(
             depart=depart,

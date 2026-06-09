@@ -57,6 +57,7 @@ from src.scraper.route_fetch import fetch_route_with_fallback
 from src.scraper.viamichelin import ViaMichelinScraper
 from src.scraper.viamichelin_api import (
     coords_from_hit,
+    fetch_itinerary_graphql,
     fetch_itinerary_vmrest,
     fetch_route_viamichelin,
     is_transient_api_error,
@@ -397,7 +398,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         print(f"Mode --force : re-scraping de {total_loaded} couple(s).")
 
     if not use_browser and workers > 1:
-        print("ViaMichelin API (GraphQL + vmrest) — sans navigateur")
+        print("ViaMichelin API (GraphQL SearchItinerary) — sans navigateur")
         _run_parallel_api(
             routes,
             workers=workers,
@@ -668,8 +669,20 @@ def _print_itinerary_section(
     print(f"{'=' * 60}")
     print(f"  Distance : {distance_km} km" if distance_km is not None else "  Distance : (absente)")
     if raw_response:
-        print("\n  Reponse vmrest (extrait header/summary) :")
+        print("\n  Reponse itineraire (extrait) :")
         print(json.dumps(raw_response, indent=2, ensure_ascii=False)[:8000])
+
+
+def _geo_from_search_hit(hit: dict) -> dict:
+    address = hit.get("address") or {}
+    loc = (hit.get("mapLocation") or {}).get("location") or {}
+    return {
+        "lat": loc.get("lat"),
+        "lng": loc.get("lng"),
+        "zip_code": address.get("zipCode"),
+        "department": address.get("department"),
+        "formatted_name": hit.get("formattedName"),
+    }
 
 
 def _build_test_payload(
@@ -719,12 +732,22 @@ def cmd_test(args: argparse.Namespace) -> None:
         print(f"Erreur geocodage : {exc}")
         sys.exit(1)
 
-    lon1, lat1 = coords_from_hit(depart_hits[0])
-    lon2, lat2 = coords_from_hit(arrivee_hits[0])
+    depart_geo = _geo_from_search_hit(depart_hits[0])
+    arrivee_geo = _geo_from_search_hit(arrivee_hits[0])
+    lon1, lat1 = float(depart_geo["lng"]), float(depart_geo["lat"])
+    lon2, lat2 = float(arrivee_geo["lng"]), float(arrivee_geo["lat"])
 
     try:
-        raw_response = fetch_itinerary_vmrest(lon1, lat1, lon2, lat2)
+        raw_response = fetch_itinerary_graphql(
+            depart_geo,
+            arrivee_geo,
+            depart=depart,
+            arrivee=arrivee,
+        )
         distance_km = extract_from_api_payload(raw_response)
+        if distance_km is None:
+            raw_response = fetch_itinerary_vmrest(lon1, lat1, lon2, lat2)
+            distance_km = extract_from_api_payload(raw_response)
     except Exception as exc:
         print(f"Erreur itineraire : {exc}")
         sys.exit(1)

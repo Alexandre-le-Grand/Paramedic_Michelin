@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .venv/
 data/trajets.db
+data/trajets.db-journal
 data/browser_state.json
 data/dumps/
 data/debug_graphql_*.json

@@ -28,7 +28,7 @@ Dernière revue : état du dépôt (code, scripts, README, config).
 
 - [x] `.gitignore` — `.env`, `.venv/`, `trajets.db`, `browser_state.json`, `data/dumps/`
 
-- [x] Lanceurs **`run.cmd`** / **`run.ps1`** — Python du `.venv` sans activation manuelle
+- [x] Lanceur **`run.cmd`** — Python du `.venv` sans activation manuelle
 
 
 
@@ -68,7 +68,7 @@ Dernière revue : état du dépôt (code, scripts, README, config).
 - [x] Modèle `RouteResult` + statut `ok` / `erreur` + `raw_response` (Mongo)
 
 - [x] Pause entre trajets (`SCRAPE_DELAY_SECONDS`)
-- [x] **Parallèle API** — `SCRAPE_WORKERS` / `--workers` (1–10, défaut 5) + `scripts/bench_workers.py`
+- [x] **Parallèle API** — `SCRAPE_WORKERS` / `--workers` (1–10, défaut 5)
 
 
 
@@ -96,7 +96,6 @@ Dernière revue : état du dépôt (code, scripts, README, config).
 
 ### Scripts utilitaires
 
-- [x] `scripts/test_vmrest.py` — test vmrest / coords
 
 - [x] `scripts/count-transport-routes.py` — nombre de paires uniques (sans aller-retour)
 
@@ -134,7 +133,7 @@ Dernière revue : état du dépôt (code, scripts, README, config).
 
 ### Projet & qualité
 
-- [x] Nettoyage artefacts debug (`debug_graphql_*.json`, `debug_body.txt`, `debug_page_body.txt`) + script `debug-viamichelin.py` supprimé ; `debug_gql_request.txt` conservé (template GraphQL)
+- [x] Nettoyage artefacts debug ; templates GraphQL : `viamichelin_search_address.json` + `viamichelin_search_address_full.json`
 
 - [ ] Rendre **`setup-transports.ps1`** portable (chemin en dur `c:\Users\alexa\Documents\DEV\transports`)
 
