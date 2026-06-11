@@ -25,23 +25,55 @@ class MongoRepository:
         self.collection: Collection = self.db[collection_name or MONGO_COLLECTION]
         self._ensure_indexes()
 
+    def _backfill_dept_index_fields(self) -> int:
+        """Champs vides pour l'index unique (anciens docs sans departements)."""
+        updated = 0
+        for field in ("depart_departement", "arrivee_departement"):
+            result = self.collection.update_many(
+                {field: {"$exists": False}},
+                {"$set": {field: ""}},
+            )
+            updated += int(result.modified_count)
+            result = self.collection.update_many(
+                {field: None},
+                {"$set": {field: ""}},
+            )
+            updated += int(result.modified_count)
+        return updated
+
     def _ensure_indexes(self) -> None:
         self.collection.create_index([("scraped_at", -1)])
         self.collection.create_index([("statut", 1)])
+        self._backfill_dept_index_fields()
+        for old_name in ("uniq_depart_arrivee",):
+            try:
+                self.collection.drop_index(old_name)
+            except Exception:
+                pass
         try:
             self.collection.create_index(
-                [("depart", 1), ("arrivee", 1)],
+                [
+                    ("depart", 1),
+                    ("arrivee", 1),
+                    ("depart_departement", 1),
+                    ("arrivee_departement", 1),
+                ],
                 unique=True,
-                name="uniq_depart_arrivee",
+                name="uniq_depart_arrivee_dept",
             )
         except DuplicateKeyError:
             removed = self.dedupe_pairs()
             if removed:
                 print(f"MongoDB : {removed} doublon(s) supprime(s) avant index unique.")
             self.collection.create_index(
-                [("depart", 1), ("arrivee", 1)],
+                [
+                    ("depart", 1),
+                    ("arrivee", 1),
+                    ("depart_departement", 1),
+                    ("arrivee_departement", 1),
+                ],
                 unique=True,
-                name="uniq_depart_arrivee",
+                name="uniq_depart_arrivee_dept",
             )
 
     def dedupe_pairs(self) -> int:
@@ -50,7 +82,16 @@ class MongoRepository:
         pipeline = [
             {
                 "$group": {
-                    "_id": {"depart": "$depart", "arrivee": "$arrivee"},
+                    "_id": {
+                        "depart": "$depart",
+                        "arrivee": "$arrivee",
+                        "depart_departement": {
+                            "$ifNull": ["$depart_departement", ""]
+                        },
+                        "arrivee_departement": {
+                            "$ifNull": ["$arrivee_departement", ""]
+                        },
+                    },
                     "docs": {"$push": {"_id": "$_id", "doc": "$$ROOT"}},
                     "n": {"$sum": 1},
                 }
@@ -99,18 +140,23 @@ class MongoRepository:
         result = self.collection.delete_many({})
         return int(result.deleted_count)
 
-    def existing_ok_pairs(self) -> set[tuple[str, str]]:
-        """Couples depart->arrivee deja calcules avec succes."""
-        pairs: set[tuple[str, str]] = set()
+    def existing_ok_pairs(self) -> set[tuple[str, str, str, str]]:
+        """Trajets deja calcules avec succes (cle inclut les departements)."""
+        pairs: set[tuple[str, str, str, str]] = set()
         cursor = self.collection.find(
             {"statut": "ok", "distance_km": {"$ne": None}},
-            projection={"depart": 1, "arrivee": 1, "_id": 0},
+            projection={
+                "depart": 1,
+                "arrivee": 1,
+                "depart_departement": 1,
+                "arrivee_departement": 1,
+                "_id": 0,
+            },
         )
         for doc in cursor:
-            depart = doc.get("depart")
-            arrivee = doc.get("arrivee")
-            if depart and arrivee:
-                pairs.add((depart, arrivee))
+            pair = RoutePair.from_mapping(doc)
+            if pair.depart and pair.arrivee:
+                pairs.add(pair.mongo_key())
         return pairs
 
     def load_pending_pairs(self, limit: int | None = None) -> list[tuple[str, str]]:
@@ -217,26 +263,20 @@ class MongoRepository:
                 if isinstance(item, RoutePair)
                 else RoutePair.from_cities(item[0], item[1])
             )
-            depart, arrivee = route.depart, route.arrivee
-            if (depart, arrivee) in ok_pairs:
+            if route.mongo_key() in ok_pairs:
                 skipped_ok += 1
                 continue
             insert_doc: dict[str, Any] = {
-                "depart": depart,
-                "arrivee": arrivee,
+                **route.mongo_filter(),
                 "statut": "pending",
                 "distance_km": None,
                 "source": None,
                 "message_erreur": None,
                 "scraped_at": datetime.now(timezone.utc),
             }
-            if route.depart_departement:
-                insert_doc["depart_departement"] = route.depart_departement
-            if route.arrivee_departement:
-                insert_doc["arrivee_departement"] = route.arrivee_departement
             ops.append(
                 UpdateOne(
-                    {"depart": depart, "arrivee": arrivee},
+                    route.mongo_filter(),
                     {"$setOnInsert": insert_doc},
                     upsert=True,
                 )
@@ -250,17 +290,18 @@ class MongoRepository:
     def upsert_trajet(self, record: dict[str, Any]) -> str:
         doc = dict(record)
         doc.setdefault("scraped_at", datetime.now(timezone.utc))
-        result = self.collection.update_one(
-            {"depart": record["depart"], "arrivee": record["arrivee"]},
-            {"$set": doc},
-            upsert=True,
-        )
+        doc.setdefault("depart_departement", doc.get("depart_departement") or "")
+        doc.setdefault("arrivee_departement", doc.get("arrivee_departement") or "")
+        filt = {
+            "depart": record["depart"],
+            "arrivee": record["arrivee"],
+            "depart_departement": doc["depart_departement"],
+            "arrivee_departement": doc["arrivee_departement"],
+        }
+        result = self.collection.update_one(filt, {"$set": doc}, upsert=True)
         if result.upserted_id:
             return str(result.upserted_id)
-        existing = self.collection.find_one(
-            {"depart": record["depart"], "arrivee": record["arrivee"]},
-            projection={"_id": 1},
-        )
+        existing = self.collection.find_one(filt, projection={"_id": 1})
         return str(existing["_id"]) if existing else ""
 
     def list_trajets(self, limit: int = 50) -> list[dict[str, Any]]:

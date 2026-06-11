@@ -50,6 +50,8 @@ from src.db.sql_repository import SqlRepository
 from src.db.transports_repository import TransportsRepository
 from src.city_departments import department_for_city, geocode_search_query
 from src.models import RouteResult
+from src.city_departments import HUB_CITIES
+from src.hub_expansion import expand_hub_routes
 from src.route_pair import RoutePair
 from src.route_pairs import dedupe_bidirectional
 from src.scraper.browser_fallback import BrowserFallbackPool
@@ -201,7 +203,7 @@ def _print_result(depart: str, arrivee: str, result: RouteResult) -> dict:
     return record
 
 
-def _existing_ok_pairs(mongo_repo: MongoRepository) -> set[tuple[str, str]]:
+def _existing_ok_pairs(mongo_repo: MongoRepository) -> set[tuple[str, str, str, str]]:
     return mongo_repo.existing_ok_pairs()
 
 
@@ -231,15 +233,14 @@ def _resolve_workers(args: argparse.Namespace, use_browser: bool) -> int:
 
 
 def _persist_result(
-    depart: str,
-    arrivee: str,
+    route: RoutePair,
     result: RouteResult,
     *,
     mongo_repo: MongoRepository,
     sql_repo: SqlRepository | None = None,
 ) -> bool:
     """Enregistre en MongoDB (upsert). Retourne False si pas de km valide."""
-    _print_result(depart, arrivee, result)
+    _print_result(route.depart, route.arrivee, result)
     if result.statut != "ok" or result.distance_km is None:
         if is_transient_api_error(result.message_erreur):
             print(
@@ -250,6 +251,9 @@ def _persist_result(
             print("  -> Non enregistre (pas de km valide).")
         return False
     record = result_to_record(result)
+    # Cle Mongo = departements du trajet en attente, pas ceux renvoyes par le geocodage.
+    record["depart_departement"] = route.depart_departement or ""
+    record["arrivee_departement"] = route.arrivee_departement or ""
     mongo_id = mongo_repo.upsert_trajet(record)
     if sql_repo is not None:
         sql_id = sql_repo.insert_trajet(record)
@@ -274,21 +278,21 @@ def _run_parallel_api(
     osrm_ok = 0
     t0 = time.perf_counter()
 
-    def _task(route: RoutePair) -> tuple[str, str, RouteResult]:
+    def _task(route: RoutePair) -> tuple[RoutePair, RouteResult]:
         result = fetch_route_with_fallback(
             route,
             osrm_fallback=osrm_fallback,
             browser_pool=None,
         )
-        return route.depart, route.arrivee, result
+        return route, result
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [pool.submit(_task, route) for route in routes]
         for future in as_completed(futures):
-            depart, arrivee, result = future.result()
+            route, result = future.result()
             with db_lock:
                 _persist_result(
-                    depart, arrivee, result,
+                    route, result,
                     mongo_repo=mongo_repo, sql_repo=sql_repo,
                 )
                 done += 1
@@ -382,7 +386,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     total_loaded = len(routes)
     if args.source != "mongo" and not getattr(args, "force", False):
         existing = _existing_ok_pairs(mongo_repo)
-        pending = [r for r in routes if r.as_tuple() not in existing]
+        pending = [r for r in routes if r.mongo_key() not in existing]
         skipped = total_loaded - len(pending)
         routes = pending
         if skipped:
@@ -412,7 +416,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 
         def _process_route(route: RoutePair, result: RouteResult) -> None:
             _persist_result(
-                route.depart, route.arrivee, result,
+                route, result,
                 mongo_repo=mongo_repo, sql_repo=sql_repo,
             )
 
@@ -497,13 +501,40 @@ def cmd_clean_mongo(args: argparse.Namespace) -> None:
 
 def cmd_seed_mongo(args: argparse.Namespace) -> None:
     limit = args.limit if args.limit and args.limit > 0 else None
-    routes = load_trajets("transports", Path("data/trajets.csv"), limit=limit)
-    if not routes:
-        print("Aucune paire a inscrire (transports vide ?).")
+    trans = TransportsRepository()
+    try:
+        total = trans.count_documents()
+        if total == 0:
+            print(
+                "La collection paramedic.transports est vide.\n"
+                "  1. docker compose up -d\n"
+                "  2. .\\scripts\\restore-transports.ps1"
+            )
+            return
+        base_pairs = trans.load_unique_route_pairs(limit=limit)
+        hub_depts = trans.load_hub_departments()
+        hub_targets: set[str] = set()
+        for route in base_pairs:
+            if route.depart in HUB_CITIES:
+                hub_targets.add(route.arrivee)
+            if route.arrivee in HUB_CITIES:
+                hub_targets.add(route.depart)
+        routes_to_city = trans.load_routes_to_cities(hub_targets)
+        route_pairs = expand_hub_routes(base_pairs, hub_depts, routes_to_city)
+        print(
+            f"Source paramedic.transports : {total} transports, "
+            f"{len(base_pairs)} paire(s) ville unique(s), "
+            f"{len(route_pairs)} trajet(s) apres expansion Paris/Marseille "
+            f"(depts Paris: {len(hub_depts.get('Paris', set()))}, "
+            f"Marseille: {len(hub_depts.get('Marseille', set()))})."
+        )
+    finally:
+        trans.close()
+    if not route_pairs:
+        print("Aucune paire a inscrire.")
         return
     repo = MongoRepository()
     repo.ping()
-    route_pairs = [RoutePair.from_cities(d, a) for d, a in routes]
     inserted, skipped_ok = repo.seed_pairs(route_pairs)
     patched = repo.apply_city_departments()
     print(
