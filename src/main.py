@@ -54,6 +54,7 @@ from src.city_departments import HUB_CITIES
 from src.hub_expansion import expand_hub_routes
 from src.route_pair import RoutePair
 from src.route_pairs import dedupe_bidirectional
+from src.terminal_style import C, set_color_enabled, sty
 from src.scraper.browser_fallback import BrowserFallbackPool
 from src.scraper.route_fetch import fetch_route_with_fallback
 from src.scraper.viamichelin import ViaMichelinScraper
@@ -163,23 +164,28 @@ def _print_geo(
     department: str | None = None,
 ) -> None:
     if formatted_name:
-        print(f"  {label}: {formatted_name}")
+        print(f"  {sty(label + ':', C.MAGENTA, C.BOLD)} {formatted_name}")
     parts: list[str] = []
     if lat is not None and lng is not None:
-        parts.append(f"lat={lat}, lng={lng}")
+        parts.append(sty(f"lat={lat}, lng={lng}", C.DIM))
     if zip_code:
-        parts.append(f"CP={zip_code}")
+        parts.append(sty(f"CP={zip_code}", C.BLUE))
     if department:
-        parts.append(f"dept={department}")
+        parts.append(sty(f"dept={department}", C.YELLOW))
     if parts:
-        print(f"  {label} (geo): {', '.join(parts)}")
+        print(f"  {sty(label + ' (geo):', C.MAGENTA)} {', '.join(parts)}")
 
 
 def _route_label(route: RoutePair) -> str:
     dept = route.arrivee_departement or route.depart_departement
+    cities = (
+        f"{sty(route.depart, C.CYAN, C.BOLD)}"
+        f" {sty('->', C.DIM)} "
+        f"{sty(route.arrivee, C.CYAN, C.BOLD)}"
+    )
     if dept:
-        return f"{route.depart} -> {route.arrivee} ({dept})"
-    return f"{route.depart} -> {route.arrivee}"
+        return f"{cities} {sty(f'({dept})', C.YELLOW)}"
+    return cities
 
 
 def _geo_compact(
@@ -190,11 +196,11 @@ def _geo_compact(
 ) -> str:
     parts: list[str] = []
     if zip_code:
-        parts.append(f"CP={zip_code}")
+        parts.append(sty(f"CP={zip_code}", C.BLUE))
     if department:
-        parts.append(f"dept={department}")
+        parts.append(sty(f"dept={department}", C.YELLOW))
     if lat is not None and lng is not None:
-        parts.append(f"lat={lat}, lng={lng}")
+        parts.append(sty(f"lat={lat}, lng={lng}", C.DIM))
     return ", ".join(parts)
 
 
@@ -213,7 +219,11 @@ def _print_geo_compact(result: RouteResult) -> None:
     )
     if not dep and not arr:
         return
-    print(f"  dep: {dep or '?'} | arr: {arr or '?'}")
+    print(
+        f"  {sty('dep:', C.MAGENTA)} {dep or '?'} "
+        f"{sty('|', C.DIM)} "
+        f"{sty('arr:', C.MAGENTA)} {arr or '?'}"
+    )
 
 
 def _print_result_compact(
@@ -223,22 +233,35 @@ def _print_result_compact(
     index: int,
     total: int,
 ) -> None:
-    label = _route_label(route)
-    prefix = f"[{index}/{total}] {label}"
+    prefix = (
+        f"{sty(f'[{index}/{total}]', C.DIM)} "
+        f"{_route_label(route)}"
+    )
     if result.statut == "ok" and result.distance_km is not None:
-        src = f" [{result.source}]" if result.source != "viamichelin" else ""
-        print(f"{prefix}: {result.distance_km} km{src}")
+        km = sty(f"{result.distance_km} km", C.GREEN, C.BOLD)
+        src = (
+            sty(f" [{result.source}]", C.DIM)
+            if result.source != "viamichelin"
+            else ""
+        )
+        print(f"{prefix}: {km}{src}")
         _print_geo_compact(result)
         return
     err = result.message_erreur or "pas de km"
     if is_transient_api_error(result.message_erreur):
         err = "ViaMichelin sature — relancer plus tard"
-    print(f"{prefix}: erreur — {err}")
+    print(
+        f"{prefix}: {sty('erreur', C.RED, C.BOLD)} "
+        f"{sty('—', C.DIM)} {sty(err, C.RED)}"
+    )
     _print_geo_compact(result)
 
 
 def _print_result(depart: str, arrivee: str, result: RouteResult) -> dict:
-    print(f"\nTrajet: {depart} -> {arrivee}")
+    print(
+        f"\n{sty('Trajet:', C.BOLD)} "
+        f"{sty(depart, C.CYAN)} {sty('->', C.DIM)} {sty(arrivee, C.CYAN)}"
+    )
     _print_geo(
         "Depart",
         result.depart_lat,
@@ -256,12 +279,18 @@ def _print_result(depart: str, arrivee: str, result: RouteResult) -> dict:
         result.arrivee_departement,
     )
     record = result_to_record(result)
+    km = record.get("distance_km")
+    if result.statut == "ok" and km is not None:
+        km_txt = sty(f"{km} km", C.GREEN, C.BOLD)
+    else:
+        km_txt = sty(str(km), C.RED)
     print(
-        f"  -> {record.get('distance_km')} km | "
-        f"source={record['source']} | statut={record['statut']}"
+        f"  {sty('->', C.DIM)} {km_txt} | "
+        f"{sty('source=', C.DIM)}{record['source']} | "
+        f"{sty('statut=', C.DIM)}{record['statut']}"
     )
     if result.statut == "erreur" and result.message_erreur:
-        print(f"  -> {result.message_erreur}")
+        print(f"  {sty('->', C.DIM)} {sty(result.message_erreur, C.RED)}")
     return record
 
 
@@ -319,9 +348,15 @@ def _persist_result(
     if verbose:
         if sql_repo is not None:
             sql_id = sql_repo.insert_trajet(record)
-            print(f"  Enregistre: MongoDB id={mongo_id}, SQL id={sql_id}")
+            print(
+                f"  {sty('Enregistre:', C.GREEN)} "
+                f"MongoDB id={sty(mongo_id, C.DIM)}, SQL id={sty(sql_id, C.DIM)}"
+            )
         else:
-            print(f"  Enregistre: MongoDB id={mongo_id}")
+            print(
+                f"  {sty('Enregistre:', C.GREEN)} "
+                f"MongoDB id={sty(mongo_id, C.DIM)}"
+            )
     return True
 
 
@@ -370,22 +405,27 @@ def _run_parallel_api(
                     osrm_ok += 1
 
     elapsed = time.perf_counter() - t0
+    rate = done / elapsed if elapsed > 0 else 0.0
+    err_txt = sty(f"{errors} erreur(s)", C.RED if errors else C.DIM)
     msg = (
-        f"\nParallele ({workers} workers) : {done} trajets en {elapsed:.1f}s "
-        f"({done / elapsed:.2f}/s), {errors} erreur(s)."
+        f"\n{sty('Parallele', C.BOLD)} ({workers} workers) : "
+        f"{sty(str(done), C.GREEN)} trajets en {elapsed:.1f}s "
+        f"({rate:.2f}/s), {err_txt}."
     )
     if osrm_ok:
-        msg += f" {osrm_ok} via OSRM (secours)."
+        msg += f" {sty(f'{osrm_ok} via OSRM', C.YELLOW)} (secours)."
     print(msg)
 
 
 def cmd_run(args: argparse.Namespace) -> None:
     limit = args.limit if args.limit and args.limit > 0 else None
+    if getattr(args, "no_color", False):
+        set_color_enabled(False)
     mongo_repo = MongoRepository()
     mongo_repo.ping()
     sql_repo = SqlRepository() if getattr(args, "also_sql", False) else None
 
-    verbose = getattr(args, "verbose", False)
+    verbose = not getattr(args, "quiet", False)
 
     if args.source == "mongo":
         ignored_hub = mongo_repo.mark_unscrapable_hub_routes()
@@ -398,15 +438,25 @@ def cmd_run(args: argparse.Namespace) -> None:
             skipped_ok = before - len(routes)
         ignored_total = mongo_repo.count_ignored()
         print(
-            f"Source MongoDB {mongo_repo.db.name}.{mongo_repo.collection.name} : "
-            f"{len(routes)} a calculer, {mongo_repo.count_ok()} deja ok"
-            + (f", {skipped_ok} ignores (deja calcules)" if skipped_ok else "")
+            f"{sty('Source MongoDB', C.BOLD)} "
+            f"{mongo_repo.db.name}.{mongo_repo.collection.name} : "
+            f"{sty(str(len(routes)), C.GREEN, C.BOLD)} a calculer, "
+            f"{sty(str(mongo_repo.count_ok()), C.CYAN)} deja ok"
             + (
-                f", {ignored_hub} non geocodables marques ignore"
+                f", {sty(f'{skipped_ok} ignores (deja calcules)', C.DIM)}"
+                if skipped_ok
+                else ""
+            )
+            + (
+                f", {sty(f'{ignored_hub} non geocodables ignores', C.YELLOW)}"
                 if ignored_hub
                 else ""
             )
-            + (f", {ignored_total} ignores au total" if ignored_total else "")
+            + (
+                f", {sty(f'{ignored_total} ignores au total', C.DIM)}"
+                if ignored_total
+                else ""
+            )
             + f", {mongo_repo.count_pending()} en attente."
         )
     else:
@@ -445,7 +495,10 @@ def cmd_run(args: argparse.Namespace) -> None:
         workers = 1
     mode_label = f"{workers} requete(s) en parallele" if workers > 1 else "sequentiel"
     dest = "MongoDB" + (" + SQL" if sql_repo else "")
-    print(f"Calcul distances ({mode_label}) — {dest}")
+    print(
+        f"{sty('Calcul distances', C.BOLD)} ({mode_label}) "
+        f"{sty('—', C.DIM)} {dest}"
+    )
     if osrm_fallback:
         print(
             "Secours OSRM : si ViaMichelin vmrest en 503, distance via "
@@ -564,7 +617,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                     time.sleep(SCRAPE_DELAY_SECONDS)
 
     mongo_repo.close()
-    print("\nTermine.")
+    print(f"\n{sty('Termine.', C.GREEN, C.BOLD)}")
 
 
 def cmd_clean_bad_mongo(args: argparse.Namespace) -> None:
@@ -962,9 +1015,15 @@ def main() -> None:
         help="Re-scraper meme si le couple existe deja en MongoDB (ok).",
     )
     run_p.add_argument(
-        "--verbose",
+        "--quiet",
+        "-q",
         action="store_true",
-        help="Affichage detaille (geo, ids Mongo) au lieu d'une ligne par trajet.",
+        help="Affichage compact (une ligne par trajet) au lieu du detail geo par defaut.",
+    )
+    run_p.add_argument(
+        "--no-color",
+        action="store_true",
+        help="Desactiver les couleurs du terminal.",
     )
     run_p.add_argument(
         "--also-sql",
