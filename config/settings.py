@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
+GRAPHQL_DIR = ROOT / "config" / "graphql"
+SAMPLE_CSV_PATH = ROOT / "data" / "samples" / "trajets.csv"
 SQLITE_PATH = os.getenv("SQLITE_PATH", str(ROOT / "data" / "trajets.db"))
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 MONGO_DB = os.getenv("MONGO_DB", "paramedic_michelin")
@@ -13,7 +15,7 @@ MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "trajets")
 # Base patron (dump transports)
 PARAMEDIC_DB = os.getenv("PARAMEDIC_DB", "paramedic")
 TRANSPORTS_COLLECTION = os.getenv("TRANSPORTS_COLLECTION", "transports")
-# csv = data/trajets.csv | transports = paramedic.transports (apres mongorestore)
+# csv = data/samples/trajets.csv | transports = paramedic.transports | mongo = trajets pending
 TRAJETS_SOURCE = os.getenv("TRAJETS_SOURCE", "transports").strip().lower()
 SCRAPE_DELAY_SECONDS = float(os.getenv("SCRAPE_DELAY_SECONDS", "0.5"))
 # Requetes ViaMichelin en parallele (API uniquement ; 1 = sequentiel)

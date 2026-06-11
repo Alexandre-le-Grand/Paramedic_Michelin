@@ -12,6 +12,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from config.settings import GRAPHQL_DIR
+
 GQL_URL = "https://bff.viamichelin.com/graphql"
 VMREST_AUTH = "JSBS20110216111214120400892678"
 HEADERS = {
@@ -19,8 +21,9 @@ HEADERS = {
     "Origin": "https://www.viamichelin.fr",
     "Referer": "https://www.viamichelin.fr/",
 }
+
 GQL_BODY = json.loads(
-    (ROOT / "data" / "viamichelin_search_address_full.json").read_text(encoding="utf-8")
+    (GRAPHQL_DIR / "viamichelin_search_address_full.json").read_text(encoding="utf-8")
 )
 
 

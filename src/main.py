@@ -31,6 +31,7 @@ if str(ROOT) not in sys.path:
 try:
     from config.settings import (
         BROWSER_HEADLESS,
+        SAMPLE_CSV_PATH,
         SCRAPE_BROWSER_FALLBACK,
         SCRAPE_DELAY_SECONDS,
         SCRAPE_OSRM_FALLBACK,
@@ -48,9 +49,12 @@ except ModuleNotFoundError as exc:
 from src.db.mongo_repository import MongoRepository
 from src.db.sql_repository import SqlRepository
 from src.db.transports_repository import TransportsRepository
-from src.city_departments import department_for_city, geocode_search_query
+from src.city_departments import (
+    HUB_CITIES,
+    department_for_city,
+    geocode_search_query,
+)
 from src.models import RouteResult
-from src.city_departments import HUB_CITIES
 from src.hub_expansion import expand_hub_routes
 from src.route_pair import RoutePair
 from src.route_pairs import dedupe_bidirectional
@@ -98,7 +102,7 @@ def load_trajets(
                     "La collection paramedic.transports est vide.\n"
                     "  1. docker compose up -d\n"
                     "  2. .\\scripts\\restore-transports.ps1\n"
-                    "Ou utilisez --source csv pour data/trajets.csv"
+                    "Ou utilisez --source csv pour data/samples/trajets.csv"
                 )
                 return []
             routes = repo.load_unique_routes(limit=limit)
@@ -975,7 +979,7 @@ def main() -> None:
         default=TRAJETS_SOURCE,
         help="mongo = trajets pending en MongoDB | transports = paramedic.transports | csv",
     )
-    run_p.add_argument("--csv", default="data/trajets.csv")
+    run_p.add_argument("--csv", default=str(SAMPLE_CSV_PATH))
     run_p.add_argument(
         "--limit",
         type=int,

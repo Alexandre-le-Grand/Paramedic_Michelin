@@ -1,89 +1,81 @@
 # Paramedic Michelin
 
-Calcul d'itineraires **ViaMichelin** (API GraphQL + vmrest, rapide) + stockage **SQL** (SQLite) et **MongoDB**.
+Calcul de distances routieres **ViaMichelin** (API GraphQL) avec stockage **MongoDB** (et SQLite optionnel).
+
+## Structure du projet
+
+```
+Paramedic_Michelin/
+├── config/
+│   ├── settings.py          # Variables d'environnement
+│   └── graphql/             # Templates requetes ViaMichelin
+├── data/
+│   ├── dumps/               # Dump patron (non versionne, ~100 Mo)
+│   └── samples/trajets.csv  # CSV de test (9 lignes)
+├── scripts/
+│   ├── restore-transports.ps1 / .sh
+│   ├── setup-transports.ps1
+│   ├── count_transports_pairs.py
+│   ├── inspect_paris_marseille.py
+│   └── probe_viamichelin.py
+├── sql/schema.sql
+├── src/
+│   ├── main.py              # CLI (run.cmd)
+│   ├── db/                  # Mongo, SQL, transports patron
+│   └── scraper/             # ViaMichelin, OSRM, navigateur
+├── docker-compose.yml
+└── run.cmd
+```
 
 ## Installation
 
-```bash
-pip install -r requirements.txt
+```powershell
+python -m venv .venv
+.\.venv\Scripts\pip install -r requirements.txt
 python -m playwright install msedge
 copy .env.example .env
 docker compose up -d
 ```
 
-MongoDB **8** (`mongo:8` dans `docker-compose.yml`).
-
-### Base MongoDB du patron (`paramedic.transports`)
-
-Le dump est dans `data/dumps/transports` (copie de l’archive fournie).
-
-```powershell
-# Restauration (une fois, ou après reset du volume Docker)
-.\scripts\restore-transports.ps1
-
-# Ou à la main :
-docker compose exec mongodb mongorestore --gzip --archive=/dumps/transports --nsInclude="paramedic.*"
-```
-
-Voir `data/dumps/README.md` pour le détail.
-
-## Utilisation
-
-**Une fois** : lancer Docker Desktop, puis restaurer le dump patron :
+Placer le dump patron dans `data/dumps/transports` (voir `data/dumps/README.md`).
 
 ```powershell
 .\scripts\setup-transports.ps1
 ```
 
+## Workflow MongoDB
+
 ```powershell
-# ViaMichelin API — trajets depuis paramedic.transports (~3 s / trajet)
-.\run.cmd run --limit 10
-
-# Forcer 3 workers au lieu du defaut (5)
-.\run.cmd run --limit 30 --workers 3
-
-# Tous les couples uniques (Paris-Bordeaux et Bordeaux-Paris = un seul calcul)
-.\run.cmd run
-
-# Trajet normal avec autoroutes / peages
-.\run.cmd run --avec-peages --limit 10
-
-# Petit CSV de test
-.\run.cmd run --source csv
-
-# Mode navigateur Edge (lent, secours uniquement)
-.\run.cmd run --visible
-
-# Debug : voir Edge a l'ecran
-python src/main.py run --visible
-
-# Voir les derniers resultats SQL
-python src/main.py list-sql
+.\run.cmd seed-mongo                    # Inscrire les paires (expansion Paris/Marseille)
+.\run.cmd run --source mongo            # Calculer les km (affichage detaille par defaut)
+.\run.cmd run --source mongo --quiet    # Une ligne par trajet
+.\run.cmd run --source mongo --workers 3
+.\run.cmd list-mongo
 ```
 
-Par defaut le navigateur tourne en **headless** (`BROWSER_HEADLESS=true` dans `.env`).  
-Les itineraires sont calcules **sans peages** par defaut (`VIAMICHELIN_AVOID_TOLLS=true`).  
-En base : `source=viamichelin` si le calcul reussit.
+## Autres commandes
 
-## Fichiers
-
-| Fichier | Role |
-|---------|------|
-| `data/trajets.csv` | Liste depart / arrivee |
-| `src/scraper/viamichelin.py` | Scraping Playwright |
-| `src/db/sql_repository.py` | SQLite |
-| `src/db/mongo_repository.py` | MongoDB |
-| `data/browser_state.json` | Cookies (genere, ne pas committer) |
-
-## CSV
-
-```csv
-depart,arrivee
-Paris,Lyon
+```powershell
+.\run.cmd run --source csv              # data/samples/trajets.csv
+.\run.cmd run --source mongo --osrm     # Secours OSRM si API saturee
+.\run.cmd run --source mongo --browser  # Secours navigateur
+.\run.cmd test Paris Lyon               # Test sans ecriture en base
+.\run.cmd patch-departments
+.\run.cmd clean-bad-mongo
+.\.venv\Scripts\python.exe scripts\count_transports_pairs.py
+.\.venv\Scripts\python.exe scripts\probe_viamichelin.py
 ```
+
+## Bases MongoDB
+
+| Base | Collection | Role |
+|------|------------|------|
+| `paramedic` | `transports` | Donnees patron (dump, lecture seule) |
+| `paramedic_michelin` | `trajets` | Resultats km / statut pending / ok |
 
 ## Depannage
 
 - **Edge introuvable** : `python -m playwright install msedge`
-- **Erreur cookies** : supprimer `data/browser_state.json` et relancer
-- **Distance vide** : verifier les noms de villes, laisser Edge finir le calcul
+- **Cookies navigateur** : supprimer `data/browser_state.json`
+- **API 503** : relancer plus tard ou `.\run.cmd run --source mongo --osrm`
+- **ViaMichelin down** : `.\run.cmd monitor`

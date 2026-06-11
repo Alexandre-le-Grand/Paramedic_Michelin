@@ -8,10 +8,10 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from pathlib import Path
 from typing import Any
 
 from config.settings import (
+    GRAPHQL_DIR,
     SCRAPE_API_CONCURRENCY,
     SCRAPE_RETRY_BASE_SECONDS,
     SCRAPE_RETRY_MAX,
@@ -20,15 +20,14 @@ from src.city_departments import geocode_search_query
 from src.extract import extract_from_api_payload
 from src.models import RouteResult
 
-ROOT = Path(__file__).resolve().parents[2]
 SEARCH_TEMPLATE = json.loads(
-    (ROOT / "data" / "viamichelin_search_address.json").read_text(encoding="utf-8")
+    (GRAPHQL_DIR / "viamichelin_search_address.json").read_text(encoding="utf-8")
 )
 SEARCH_FULL_TEMPLATE = json.loads(
-    (ROOT / "data" / "viamichelin_search_address_full.json").read_text(encoding="utf-8")
+    (GRAPHQL_DIR / "viamichelin_search_address_full.json").read_text(encoding="utf-8")
 )
 ITINERARY_TEMPLATE = json.loads(
-    (ROOT / "data" / "viamichelin_search_itinerary.json").read_text(encoding="utf-8")
+    (GRAPHQL_DIR / "viamichelin_search_itinerary.json").read_text(encoding="utf-8")
 )
 GQL_URL = "https://bff.viamichelin.com/graphql"
 VMREST_AUTH_KEY = "JSBS20110216111214120400892678"
