@@ -9,3 +9,5 @@ Les secours ne sont **jamais** activés par défaut :
 - **Navigateur** : uniquement sur demande explicite (`--browser-fallback` ou `--visible`)
 
 Ne pas inverser cette priorité ni activer OSRM/navigateur par défaut dans le code, la config ou la doc sans demande explicite de l’utilisateur.
+
+Les message commits doivent etre en francais et assez cours

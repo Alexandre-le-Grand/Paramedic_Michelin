@@ -9,8 +9,24 @@ from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
 from config.settings import MONGO_COLLECTION, MONGO_DB, MONGO_URI
-from src.city_departments import CITY_DEPARTMENT
+from src.city_departments import CITY_DEPARTMENT, is_scrapable_route
 from src.route_pair import RoutePair
+
+_PENDING_QUERY = {
+    "$and": [
+        {"$nor": [{"statut": "ok", "distance_km": {"$ne": None}}]},
+        {"statut": {"$ne": "ignore"}},
+    ],
+}
+
+# Dept bruts patron pour Paris qui echouent systematiquement sur ViaMichelin.
+_PARIS_NON_ROUTABLE_RAW = (
+    "Seine-Saint-Denis",
+    "Essonne",
+    "Yvelines",
+    "Seine-et-Marne",
+    "Val-d'Oise",
+)
 
 
 class MongoRepository:
@@ -126,15 +142,38 @@ class MongoRepository:
         )
 
     def count_pending(self) -> int:
-        return self.collection.count_documents(
+        return self.collection.count_documents(_PENDING_QUERY)
+
+    def count_ignored(self) -> int:
+        return self.collection.count_documents({"statut": "ignore"})
+
+    def mark_unscrapable_hub_routes(self) -> int:
+        """Marque ignore les trajets Paris/Marseille avec dept non geocodable."""
+        result = self.collection.update_many(
             {
+                "statut": {"$nin": ["ok", "ignore"]},
                 "$or": [
-                    {"statut": {"$ne": "ok"}},
-                    {"distance_km": None},
-                    {"distance_km": {"$exists": False}},
-                ]
-            }
+                    {
+                        "arrivee": "Paris",
+                        "arrivee_departement": {"$in": list(_PARIS_NON_ROUTABLE_RAW)},
+                    },
+                    {
+                        "depart": "Paris",
+                        "depart_departement": {"$in": list(_PARIS_NON_ROUTABLE_RAW)},
+                    },
+                ],
+            },
+            {
+                "$set": {
+                    "statut": "ignore",
+                    "message_erreur": (
+                        "Dept hub non geocodable ViaMichelin "
+                        "(ex. Paris + Seine-Saint-Denis)"
+                    ),
+                },
+            },
         )
+        return int(result.modified_count)
 
     def clear_all(self) -> int:
         result = self.collection.delete_many({})
@@ -164,16 +203,9 @@ class MongoRepository:
         return [p.as_tuple() for p in self.load_pending_routes(limit=limit)]
 
     def load_pending_routes(self, limit: int | None = None) -> list[RoutePair]:
-        """Trajets en attente avec departements Paris/Marseille si connus."""
-        query = {
-            "$or": [
-                {"statut": {"$ne": "ok"}},
-                {"distance_km": None},
-                {"distance_km": {"$exists": False}},
-            ]
-        }
+        """Trajets a calculer (exclut ok, ignore, dept hub invalide)."""
         cursor = self.collection.find(
-            query,
+            _PENDING_QUERY,
             projection={
                 "depart": 1,
                 "arrivee": 1,
@@ -183,13 +215,21 @@ class MongoRepository:
             },
             sort=[("depart", 1), ("arrivee", 1)],
         )
-        if limit is not None and limit > 0:
-            cursor = cursor.limit(limit)
         routes: list[RoutePair] = []
         for doc in cursor:
             pair = RoutePair.from_mapping(doc)
-            if pair.depart and pair.arrivee:
-                routes.append(pair)
+            if not pair.depart or not pair.arrivee:
+                continue
+            if not is_scrapable_route(
+                pair.depart,
+                pair.arrivee,
+                pair.depart_departement,
+                pair.arrivee_departement,
+            ):
+                continue
+            routes.append(pair)
+            if limit is not None and limit > 0 and len(routes) >= limit:
+                break
         return routes
 
     def reset_suspect_trajets(self) -> int:

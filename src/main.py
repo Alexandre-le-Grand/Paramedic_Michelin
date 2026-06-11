@@ -175,6 +175,68 @@ def _print_geo(
         print(f"  {label} (geo): {', '.join(parts)}")
 
 
+def _route_label(route: RoutePair) -> str:
+    dept = route.arrivee_departement or route.depart_departement
+    if dept:
+        return f"{route.depart} -> {route.arrivee} ({dept})"
+    return f"{route.depart} -> {route.arrivee}"
+
+
+def _geo_compact(
+    zip_code: str | None,
+    department: str | None,
+    lat: float | None = None,
+    lng: float | None = None,
+) -> str:
+    parts: list[str] = []
+    if zip_code:
+        parts.append(f"CP={zip_code}")
+    if department:
+        parts.append(f"dept={department}")
+    if lat is not None and lng is not None:
+        parts.append(f"lat={lat}, lng={lng}")
+    return ", ".join(parts)
+
+
+def _print_geo_compact(result: RouteResult) -> None:
+    dep = _geo_compact(
+        result.depart_zip,
+        result.depart_departement,
+        result.depart_lat,
+        result.depart_lng,
+    )
+    arr = _geo_compact(
+        result.arrivee_zip,
+        result.arrivee_departement,
+        result.arrivee_lat,
+        result.arrivee_lng,
+    )
+    if not dep and not arr:
+        return
+    print(f"  dep: {dep or '?'} | arr: {arr or '?'}")
+
+
+def _print_result_compact(
+    route: RoutePair,
+    result: RouteResult,
+    *,
+    index: int,
+    total: int,
+) -> None:
+    label = _route_label(route)
+    prefix = f"[{index}/{total}] {label}"
+    if result.statut == "ok" and result.distance_km is not None:
+        src = f" [{result.source}]" if result.source != "viamichelin" else ""
+        print(f"{prefix}: {result.distance_km} km{src}")
+        _print_geo_compact(result)
+        return
+    err = result.message_erreur or "pas de km"
+    if is_transient_api_error(result.message_erreur):
+        err = "ViaMichelin sature — relancer plus tard"
+    print(f"{prefix}: erreur — {err}")
+    _print_geo_compact(result)
+
+
 def _print_result(depart: str, arrivee: str, result: RouteResult) -> dict:
     print(f"\nTrajet: {depart} -> {arrivee}")
     _print_geo(
@@ -238,28 +300,28 @@ def _persist_result(
     *,
     mongo_repo: MongoRepository,
     sql_repo: SqlRepository | None = None,
+    verbose: bool = False,
+    index: int | None = None,
+    total: int | None = None,
 ) -> bool:
     """Enregistre en MongoDB (upsert). Retourne False si pas de km valide."""
-    _print_result(route.depart, route.arrivee, result)
+    if verbose:
+        _print_result(route.depart, route.arrivee, result)
+    elif index is not None and total is not None:
+        _print_result_compact(route, result, index=index, total=total)
     if result.statut != "ok" or result.distance_km is None:
-        if is_transient_api_error(result.message_erreur):
-            print(
-                "  -> Non enregistre (serveur ViaMichelin sature) — "
-                "relancer le run plus tard."
-            )
-        else:
-            print("  -> Non enregistre (pas de km valide).")
         return False
     record = result_to_record(result)
     # Cle Mongo = departements du trajet en attente, pas ceux renvoyes par le geocodage.
     record["depart_departement"] = route.depart_departement or ""
     record["arrivee_departement"] = route.arrivee_departement or ""
     mongo_id = mongo_repo.upsert_trajet(record)
-    if sql_repo is not None:
-        sql_id = sql_repo.insert_trajet(record)
-        print(f"  Enregistre: MongoDB id={mongo_id}, SQL id={sql_id}")
-    else:
-        print(f"  Enregistre: MongoDB id={mongo_id}")
+    if verbose:
+        if sql_repo is not None:
+            sql_id = sql_repo.insert_trajet(record)
+            print(f"  Enregistre: MongoDB id={mongo_id}, SQL id={sql_id}")
+        else:
+            print(f"  Enregistre: MongoDB id={mongo_id}")
     return True
 
 
@@ -270,6 +332,7 @@ def _run_parallel_api(
     mongo_repo: MongoRepository,
     sql_repo: SqlRepository | None = None,
     osrm_fallback: bool = False,
+    verbose: bool = False,
 ) -> None:
     db_lock = threading.Lock()
     total = len(routes)
@@ -291,11 +354,16 @@ def _run_parallel_api(
         for future in as_completed(futures):
             route, result = future.result()
             with db_lock:
-                _persist_result(
-                    route, result,
-                    mongo_repo=mongo_repo, sql_repo=sql_repo,
-                )
                 done += 1
+                _persist_result(
+                    route,
+                    result,
+                    mongo_repo=mongo_repo,
+                    sql_repo=sql_repo,
+                    verbose=verbose,
+                    index=done,
+                    total=total,
+                )
                 if result.statut == "erreur":
                     errors += 1
                 if result.source == "osrm" and result.statut == "ok":
@@ -317,12 +385,29 @@ def cmd_run(args: argparse.Namespace) -> None:
     mongo_repo.ping()
     sql_repo = SqlRepository() if getattr(args, "also_sql", False) else None
 
+    verbose = getattr(args, "verbose", False)
+
     if args.source == "mongo":
+        ignored_hub = mongo_repo.mark_unscrapable_hub_routes()
         routes = mongo_repo.load_pending_routes(limit=limit)
+        skipped_ok = 0
+        if not getattr(args, "force", False):
+            existing = _existing_ok_pairs(mongo_repo)
+            before = len(routes)
+            routes = [r for r in routes if r.mongo_key() not in existing]
+            skipped_ok = before - len(routes)
+        ignored_total = mongo_repo.count_ignored()
         print(
             f"Source MongoDB {mongo_repo.db.name}.{mongo_repo.collection.name} : "
-            f"{len(routes)} a calculer, {mongo_repo.count_ok()} deja ok, "
-            f"{mongo_repo.count_pending()} en attente au total."
+            f"{len(routes)} a calculer, {mongo_repo.count_ok()} deja ok"
+            + (f", {skipped_ok} ignores (deja calcules)" if skipped_ok else "")
+            + (
+                f", {ignored_hub} non geocodables marques ignore"
+                if ignored_hub
+                else ""
+            )
+            + (f", {ignored_total} ignores au total" if ignored_total else "")
+            + f", {mongo_repo.count_pending()} en attente."
         )
     else:
         pairs = load_trajets(
@@ -402,28 +487,24 @@ def cmd_run(args: argparse.Namespace) -> None:
         print(f"Mode --force : re-scraping de {total_loaded} couple(s).")
 
     if not use_browser and workers > 1:
-        print("ViaMichelin API (GraphQL SearchItinerary) — sans navigateur")
+        if verbose:
+            print("ViaMichelin API (GraphQL SearchItinerary) — sans navigateur")
         _run_parallel_api(
             routes,
             workers=workers,
             mongo_repo=mongo_repo,
             sql_repo=sql_repo,
             osrm_fallback=osrm_fallback,
+            verbose=verbose,
         )
     else:
         if use_browser and getattr(args, "workers", None) not in (None, 1):
             print("Note : --workers ignore en mode navigateur (sequentiel).")
 
-        def _process_route(route: RoutePair, result: RouteResult) -> None:
-            _persist_result(
-                route, result,
-                mongo_repo=mongo_repo, sql_repo=sql_repo,
-            )
-
         if use_browser:
             with ViaMichelinScraper(headless=headless, use_browser=True) as scraper:
                 for i, route in enumerate(routes):
-                    _process_route(
+                    _persist_result(
                         route,
                         scraper.fetch_route(
                             route.depart,
@@ -431,6 +512,11 @@ def cmd_run(args: argparse.Namespace) -> None:
                             depart_departement=route.depart_departement,
                             arrivee_departement=route.arrivee_departement,
                         ),
+                        mongo_repo=mongo_repo,
+                        sql_repo=sql_repo,
+                        verbose=verbose,
+                        index=i + 1,
+                        total=len(routes),
                     )
                     if i < len(routes) - 1 and SCRAPE_DELAY_SECONDS > 0:
                         time.sleep(SCRAPE_DELAY_SECONDS)
@@ -443,19 +529,24 @@ def cmd_run(args: argparse.Namespace) -> None:
             with ctx as bf_pool:
                 bf = bf_pool if browser_fallback else None
                 for i, route in enumerate(routes):
-                    _process_route(
+                    _persist_result(
                         route,
                         fetch_route_with_fallback(
                             route,
                             osrm_fallback=osrm_fallback,
                             browser_pool=bf,
                         ),
+                        mongo_repo=mongo_repo,
+                        sql_repo=sql_repo,
+                        verbose=verbose,
+                        index=i + 1,
+                        total=len(routes),
                     )
                     if i < len(routes) - 1 and SCRAPE_DELAY_SECONDS > 0:
                         time.sleep(SCRAPE_DELAY_SECONDS)
         else:
             for i, route in enumerate(routes):
-                _process_route(
+                _persist_result(
                     route,
                     fetch_route_viamichelin(
                         route.depart,
@@ -463,6 +554,11 @@ def cmd_run(args: argparse.Namespace) -> None:
                         depart_departement=route.depart_departement,
                         arrivee_departement=route.arrivee_departement,
                     ),
+                    mongo_repo=mongo_repo,
+                    sql_repo=sql_repo,
+                    verbose=verbose,
+                    index=i + 1,
+                    total=len(routes),
                 )
                 if i < len(routes) - 1 and SCRAPE_DELAY_SECONDS > 0:
                     time.sleep(SCRAPE_DELAY_SECONDS)
@@ -864,6 +960,11 @@ def main() -> None:
         "--force",
         action="store_true",
         help="Re-scraper meme si le couple existe deja en MongoDB (ok).",
+    )
+    run_p.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Affichage detaille (geo, ids Mongo) au lieu d'une ligne par trajet.",
     )
     run_p.add_argument(
         "--also-sql",

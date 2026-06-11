@@ -9,6 +9,16 @@ CITY_DEPARTMENT: dict[str, str] = {
 
 HUB_CITIES = frozenset(CITY_DEPARTMENT)
 
+# Dept Paris/Marseille acceptes par ViaMichelin (autres = No route found).
+_ROUTABLE_PARIS_DEPARTMENTS = frozenset(
+    {
+        "Département de Paris",
+        "Hauts-de-Seine",
+        "Val-de-Marne",
+    }
+)
+_ROUTABLE_MARSEILLE_DEPARTMENTS = frozenset({"Bouches-du-Rhône"})
+
 # Libelles transports patron -> requete ViaMichelin
 _DEPARTMENT_ALIASES: dict[str, str] = {
     "Paris": "Département de Paris",
@@ -30,30 +40,43 @@ def department_for_city(city: str) -> str | None:
     return CITY_DEPARTMENT.get(city.strip())
 
 
+def routable_hub_departments(city: str) -> frozenset[str]:
+    if city == "Paris":
+        return _ROUTABLE_PARIS_DEPARTMENTS
+    if city == "Marseille":
+        return _ROUTABLE_MARSEILLE_DEPARTMENTS
+    return frozenset()
+
+
 def is_plausible_hub_department(city: str, raw_department: str | None) -> bool:
-    """Ecarte les libelles parasites dans les transports (ex. Logan County)."""
+    """Ecarte les libelles parasites et les dept hub non geocodables."""
     raw = (raw_department or "").strip()
     if not raw:
         return False
     low = raw.lower()
     if "county" in low or low in {"none", "null"}:
         return False
-    if city == "Paris":
-        return (
-            raw in _DEPARTMENT_ALIASES
-            or raw.endswith("de Paris")
-            or raw in {
-                "Seine-Saint-Denis",
-                "Hauts-de-Seine",
-                "Val-de-Marne",
-                "Essonne",
-                "Yvelines",
-                "Seine-et-Marne",
-                "Val-d'Oise",
-            }
-        )
-    if city == "Marseille":
-        return "rh" in low or raw in _DEPARTMENT_ALIASES
+    if city in HUB_CITIES:
+        normalized = _DEPARTMENT_ALIASES.get(raw, raw)
+        return normalized in routable_hub_departments(city)
+    return True
+
+
+def is_scrapable_route(
+    depart: str,
+    arrivee: str,
+    depart_departement: str | None = None,
+    arrivee_departement: str | None = None,
+) -> bool:
+    """False si un dept Paris/Marseille ne peut pas etre geocode (ex. Paris + Seine-Saint-Denis)."""
+    if arrivee in HUB_CITIES and (arrivee_departement or "").strip():
+        dept = normalize_hub_department(arrivee, arrivee_departement)
+        if dept and dept not in routable_hub_departments(arrivee):
+            return False
+    if depart in HUB_CITIES and (depart_departement or "").strip():
+        dept = normalize_hub_department(depart, depart_departement)
+        if dept and dept not in routable_hub_departments(depart):
+            return False
     return True
 
 
